@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -129,8 +128,6 @@ export function HomeScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: Colors.background }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
-
       {/* ── Header ── */}
       <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
         <View style={styles.headerLeft}>
@@ -258,7 +255,7 @@ export function HomeScreen() {
               </View>
               <Text style={styles.lowStockName} numberOfLines={2}>{p.name}</Text>
               <Text style={styles.lowStockQty}>
-                <Text style={{ color: Colors.danger, fontWeight: '700' }}>{p.stock}</Text>
+                <Text style={styles.lowStockNum}>{p.stock}</Text>
                 /{p.minStock} tối thiểu
               </Text>
             </View>
@@ -508,6 +505,11 @@ const styles = StyleSheet.create({
   lowStockQty: {
     ...Typography.caption,
     color: Colors.textSecondary,
+  },
+  lowStockNum: {
+    ...Typography.captionMd,
+    color: Colors.danger,
+    fontWeight: '700' as const,
   },
   // Orders
   orderRow: {
