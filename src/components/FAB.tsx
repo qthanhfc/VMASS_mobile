@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
-import { Colors, Shadow, Radius } from '../theme';
+import { Colors, Shadow, Radius, useThemeMode } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
 interface FABProps {
@@ -10,8 +10,10 @@ interface FABProps {
 }
 
 export function FAB({ onPress, icon = 'add', style }: FABProps) {
+  const { colors } = useThemeMode();
+
   return (
-    <TouchableOpacity onPress={onPress} style={[styles.fab, style]}>
+    <TouchableOpacity onPress={onPress} style={[styles.fab, { backgroundColor: colors.primary }, style]}>
       <Ionicons name={icon} size={28} color="#fff" />
     </TouchableOpacity>
   );

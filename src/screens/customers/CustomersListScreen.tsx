@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,144 +7,226 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radius, Shadow } from '../../theme';
-import { Header, SearchBar, ChipRow, FAB, Avatar, StatusBadge } from '../../components';
+import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
+import { Header, SearchBar, ChipRow } from '../../components';
+import { useLanguage, type TranslationKey } from '../../i18n';
+import { ManageStackParamList } from '../../navigation';
 import { Customer } from '../../types';
 
-const MOCK_CUSTOMERS: Customer[] = [
-  { id: 1, name: 'Nguyễn Thị Lan', phone: '0901234567', email: 'lan@gmail.com', address: '123 Nguyễn Huệ, Q1, TP.HCM', totalSpent: 12500000, orderCount: 18, points: 1250, tier: 'VIP', createdAt: '2023-06-15' },
-  { id: 2, name: 'Trần Văn Minh', phone: '0912345678', email: 'minh@gmail.com', address: '45 Lê Lợi, Q3, TP.HCM', totalSpent: 7200000, orderCount: 11, points: 720, tier: 'Gold', createdAt: '2023-08-20' },
-  { id: 3, name: 'Lê Thị Hoa', phone: '0923456789', totalSpent: 3400000, orderCount: 6, points: 340, tier: 'Silver', createdAt: '2023-10-05' },
-  { id: 4, name: 'Phạm Quốc Bảo', phone: '0934567890', email: 'bao@gmail.com', totalSpent: 890000, orderCount: 3, points: 89, tier: 'Normal', createdAt: '2024-01-10' },
-  { id: 5, name: 'Võ Thị Thanh', phone: '0945678901', address: '78 Trần Hưng Đạo, Q5, TP.HCM', totalSpent: 15600000, orderCount: 24, points: 1560, tier: 'VIP', createdAt: '2023-04-01' },
-  { id: 6, name: 'Đặng Minh Tuấn', phone: '0956789012', email: 'tuan@gmail.com', totalSpent: 4100000, orderCount: 8, points: 410, tier: 'Gold', createdAt: '2023-12-18' },
-  { id: 7, name: 'Hoàng Thị Mai', phone: '0967890123', totalSpent: 2200000, orderCount: 5, points: 220, tier: 'Silver', createdAt: '2024-02-14' },
-  { id: 8, name: 'Bùi Văn Khoa', phone: '0978901234', totalSpent: 450000, orderCount: 2, points: 45, tier: 'Normal', createdAt: '2024-03-22' },
+type Nav = NativeStackNavigationProp<ManageStackParamList>;
+type CustomerFilter = 'all' | 'VIP' | 'Gold' | 'Silver' | 'Normal' | 'new' | 'debt';
+
+type CustomerRow = Customer & {
+  hasDebt?: boolean;
+};
+
+const MOCK_CUSTOMERS: CustomerRow[] = [
+  { id: 1, name: 'Nguyễn Thị Lan', phone: '0912 345 678', totalSpent: 18400000, orderCount: 42, points: 1840, tier: 'VIP', email: 'lan@gmail.com', createdAt: '2026-01-15' },
+  { id: 2, name: 'Trần Văn Minh', phone: '0987 654 321', totalSpent: 12100000, orderCount: 28, points: 1210, tier: 'Gold', email: 'minh@gmail.com', createdAt: '2025-11-20' },
+  { id: 3, name: 'Lê Thị Hoa', phone: '0901 234 567', totalSpent: 5800000, orderCount: 15, points: 580, tier: 'Silver', createdAt: '2025-10-05' },
+  { id: 4, name: 'Phạm Đức Anh', phone: '0934 567 890', totalSpent: 3200000, orderCount: 8, points: 320, tier: 'Normal', createdAt: '2026-02-10' },
+  { id: 5, name: 'Vũ Thị Mai', phone: '0967 890 123', totalSpent: 850000, orderCount: 3, points: 85, tier: 'Normal', createdAt: '2026-04-08' },
+  { id: 6, name: 'Hoàng Văn Tú', phone: '0945 678 901', totalSpent: 24700000, orderCount: 52, points: 2470, tier: 'VIP', createdAt: '2025-08-01' },
+  { id: 7, name: 'Đỗ Thị Hương', phone: '0923 456 789', totalSpent: 7300000, orderCount: 19, points: 730, tier: 'Gold', createdAt: '2026-04-15', hasDebt: true },
 ];
 
-const TIER_CHIPS = [
-  { key: 'all', label: 'Tất cả' },
-  { key: 'VIP', label: '🔴 VIP' },
-  { key: 'Gold', label: '🟡 Gold' },
-  { key: 'Silver', label: '⚪ Silver' },
-  { key: 'Normal', label: 'Thường' },
+const TIER_META: Record<Customer['tier'], { color: string; bg: string; labelKey: TranslationKey }> = {
+  VIP: { color: '#d97757', bg: '#fff1eb', labelKey: 'customers.tier.vip' },
+  Gold: { color: '#d4a574', bg: '#fcf5eb', labelKey: 'customers.tier.gold' },
+  Silver: { color: '#8a8a8a', bg: '#f2f2f2', labelKey: 'customers.tier.silver' },
+  Normal: { color: '#7a9e7a', bg: '#edf7ed', labelKey: 'customers.tier.normal' },
+};
+
+const FILTER_CHIPS: Array<{ key: CustomerFilter; labelKey: TranslationKey }> = [
+  { key: 'all', labelKey: 'messages.filter.all' },
+  { key: 'VIP', labelKey: 'customers.tier.vip' },
+  { key: 'Gold', labelKey: 'customers.tier.gold' },
+  { key: 'Silver', labelKey: 'customers.tier.silver' },
+  { key: 'Normal', labelKey: 'customers.tier.normal' },
+  { key: 'new', labelKey: 'customers.filter.new' },
+  { key: 'debt', labelKey: 'suppliers.withDebt' },
 ];
 
-function tierColor(tier: Customer['tier']): string {
-  switch (tier) {
-    case 'VIP': return Colors.danger;
-    case 'Gold': return '#f59e0b';
-    case 'Silver': return '#6b7280';
-    default: return Colors.textSecondary;
+function compactMoney(value: number): string {
+  if (value >= 1_000_000) {
+    const million = value / 1_000_000;
+    return million >= 100 ? `${Math.round(million)}M` : `${million.toFixed(1).replace(/\.0$/, '')}M`;
   }
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}K`;
+  }
+  return String(value);
 }
 
-function tierBg(tier: Customer['tier']): string {
-  switch (tier) {
-    case 'VIP': return Colors.dangerLight;
-    case 'Gold': return '#fef3c7';
-    case 'Silver': return '#f3f4f6';
-    default: return Colors.border;
-  }
+function firstLetter(name: string): string {
+  return name.trim().charAt(0).toUpperCase();
+}
+
+function normalizePhone(phone: string): string {
+  return phone.replace(/\s+/g, '');
 }
 
 export function CustomersListScreen() {
-  const navigation = useNavigation<any>();
+  const { colors } = useThemeMode();
+  const { dateLocale, t } = useLanguage();
+  const navigation = useNavigation<Nav>();
   const [search, setSearch] = useState('');
-  const [tier, setTier] = useState('all');
+  const [filter, setFilter] = useState<CustomerFilter>('all');
 
-  const filtered = MOCK_CUSTOMERS.filter(c => {
-    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase())
-      || c.phone.includes(search);
-    const matchTier = tier === 'all' || c.tier === tier;
-    return matchSearch && matchTier;
-  });
+  const totalSpent = useMemo(() => MOCK_CUSTOMERS.reduce((sum, customer) => sum + customer.totalSpent, 0), []);
 
-  const totalSpent = MOCK_CUSTOMERS.reduce((s, c) => s + c.totalSpent, 0);
-  const avgSpent = MOCK_CUSTOMERS.length ? Math.round(totalSpent / MOCK_CUSTOMERS.length) : 0;
-  const newThisMonth = MOCK_CUSTOMERS.filter(c => c.createdAt >= '2024-03-01').length;
-
-  const renderCustomer = ({ item }: { item: Customer }) => (
-    <TouchableOpacity
-      style={styles.customerRow}
-      onPress={() => navigation.navigate('CustomerEdit', { id: item.id })}
-      activeOpacity={0.75}
-    >
-      <Avatar name={item.name} size={46} />
-      <View style={styles.customerInfo}>
-        <View style={styles.customerNameRow}>
-          <Text style={styles.customerName}>{item.name}</Text>
-          <View style={[styles.tierBadge, { backgroundColor: tierBg(item.tier) }]}>
-            <Text style={[styles.tierText, { color: tierColor(item.tier) }]}>{item.tier}</Text>
-          </View>
-        </View>
-        <Text style={styles.customerPhone}>{item.phone}</Text>
-        <View style={styles.customerStats}>
-          <Text style={styles.spentText}>{item.totalSpent.toLocaleString('vi-VN')} đ</Text>
-          <Text style={styles.orderCountText}> · {item.orderCount} đơn</Text>
-        </View>
-      </View>
-      <View style={styles.pointsBadge}>
-        <Ionicons name="star" size={10} color={Colors.warning} />
-        <Text style={styles.pointsText}>{item.points.toLocaleString('vi-VN')}</Text>
-      </View>
-    </TouchableOpacity>
+  const avgSpent = useMemo(
+    () => (MOCK_CUSTOMERS.length ? Math.round(totalSpent / MOCK_CUSTOMERS.length) : 0),
+    [totalSpent]
   );
 
+  const thisMonthPrefix = useMemo(() => {
+    const now = new Date();
+    const month = `${now.getMonth() + 1}`.padStart(2, '0');
+    return `${now.getFullYear()}-${month}`;
+  }, []);
+
+  const newThisMonth = useMemo(
+    () => MOCK_CUSTOMERS.filter((customer) => customer.createdAt.startsWith(thisMonthPrefix)).length,
+    [thisMonthPrefix]
+  );
+
+  const totalCustomers = MOCK_CUSTOMERS.length;
+  const vipCustomers = MOCK_CUSTOMERS.filter((customer) => customer.tier === 'VIP').length;
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return MOCK_CUSTOMERS
+      .filter((customer) => {
+        const bySearch =
+          query.length === 0 ||
+          customer.name.toLowerCase().includes(query) ||
+          normalizePhone(customer.phone).includes(query.replace(/\s+/g, ''));
+
+        const byFilter =
+          filter === 'all' ||
+          (filter === 'new' && customer.orderCount <= 3) ||
+          (filter === 'debt' && !!customer.hasDebt) ||
+          customer.tier === filter;
+
+        return bySearch && byFilter;
+      })
+      .sort((a, b) => b.totalSpent - a.totalSpent);
+  }, [filter, search]);
+
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <Header
-        title="Khách hàng"
+        title={t('customers.title')}
+        subtitle={t('customers.subtitle', { total: totalCustomers.toLocaleString(dateLocale), vip: vipCustomers })}
+        onBack={() => navigation.goBack()}
         rightActions={
-          <TouchableOpacity style={styles.headerBtn}>
-            <Ionicons name="filter-outline" size={22} color={Colors.text} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.headerBtn}>
+              <Ionicons name="search" size={20} color={colors.text} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerBtn}>
+              <Ionicons name="filter-outline" size={20} color={colors.text} />
+            </TouchableOpacity>
+          </View>
         }
       />
-
-      {/* Stats hero card */}
-      <View style={styles.heroCard}>
-        <View style={styles.heroStat}>
-          <Text style={styles.heroValue}>{totalSpent.toLocaleString('vi-VN')} đ</Text>
-          <Text style={styles.heroLabel}>Tổng chi tiêu</Text>
-        </View>
-        <View style={styles.heroDivider} />
-        <View style={styles.heroStat}>
-          <Text style={styles.heroValue}>{avgSpent.toLocaleString('vi-VN')} đ</Text>
-          <Text style={styles.heroLabel}>TB/khách</Text>
-        </View>
-        <View style={styles.heroDivider} />
-        <View style={styles.heroStat}>
-          <Text style={styles.heroValue}>{newThisMonth}</Text>
-          <Text style={styles.heroLabel}>Khách mới tháng</Text>
-        </View>
-      </View>
-
-      <ChipRow chips={TIER_CHIPS} selected={tier} onSelect={setTier} />
 
       <SearchBar
         value={search}
         onChangeText={setSearch}
-        placeholder="Tìm tên, số điện thoại..."
+        placeholder={t('customers.searchPlaceholder')}
       />
+
+      <View style={styles.heroWrap}>
+        <View style={styles.heroCard}>
+          <Text style={[styles.heroHeading, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.overview')}</Text>
+          <View style={styles.heroStatsRow}>
+            <View style={styles.heroStat}>
+              <Text style={[styles.heroValue, { color: '#fff' }]}>{compactMoney(totalSpent)}</Text>
+              <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.totalSpent')}</Text>
+            </View>
+            <View style={styles.heroStat}>
+              <Text style={[styles.heroValue, { color: '#fff' }]}>{compactMoney(avgSpent)}</Text>
+              <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.avgPerCustomer')}</Text>
+            </View>
+            <View style={styles.heroStat}>
+              <Text style={[styles.heroValue, { color: '#fff' }]}>+{newThisMonth}</Text>
+              <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.newThisMonth')}</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      <ChipRow chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))} selected={filter} onSelect={(key) => setFilter(key as CustomerFilter)} />
+
+      <View style={styles.sortRow}>
+        <Text style={[styles.sortText, { color: colors.textSecondary }]}>{t('customers.sortHighestSpend')}</Text>
+        <Ionicons name="chevron-down" size={14} color={colors.textSecondary} />
+      </View>
 
       <FlatList
         data={filtered}
-        keyExtractor={item => String(item.id)}
-        renderItem={renderCustomer}
+        keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        renderItem={({ item, index }) => {
+          const isFirst = index === 0;
+          const isLast = index === filtered.length - 1;
+          const tier = TIER_META[item.tier];
+
+          return (
+            <TouchableOpacity
+              style={[
+                styles.customerRow,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                isFirst && styles.customerRowFirst,
+                !isFirst && [styles.customerRowWithSeparator, { borderTopColor: colors.border }],
+                isLast && styles.customerRowLast,
+              ]}
+              onPress={() => navigation.navigate('CustomerEdit', { id: item.id })}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.avatarCircle, { backgroundColor: tier.bg, borderColor: tier.color }]}>
+                <Text style={[styles.avatarText, { color: tier.color }]}>{firstLetter(item.name)}</Text>
+              </View>
+
+              <View style={styles.customerInfo}>
+                <View style={styles.customerNameRow}>
+                  <Text style={[styles.customerName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+                  <View style={[styles.tierBadge, { backgroundColor: tier.color }]}>
+                    <Text style={styles.tierText}>{t(tier.labelKey)}</Text>
+                  </View>
+                </View>
+
+                <Text style={[styles.customerPhone, { color: colors.textSecondary }]}>{item.phone}</Text>
+                <Text style={[styles.customerMeta, { color: colors.textSecondary }]}>
+                  {t('manage.orderCount', { count: item.orderCount })} · <Text style={[styles.customerSpent, { color: colors.primary }]}>{compactMoney(item.totalSpent)}</Text>
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+            </TouchableOpacity>
+          );
+        }}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
-            <Ionicons name="people-outline" size={48} color={Colors.border} />
-            <Text style={styles.emptyText}>Không tìm thấy khách hàng</Text>
+            <Ionicons name="people-outline" size={46} color={colors.border} />
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{t('customers.empty')}</Text>
           </View>
+        }
+        ListFooterComponent={
+          <Text style={[styles.loadMoreText, { color: colors.textSecondary }]}>{t('customers.loadMore')}</Text>
         }
       />
 
-      <FAB onPress={() => navigation.navigate('CustomerEdit')} />
+      <TouchableOpacity style={styles.fabPill} onPress={() => navigation.navigate('CustomerEdit', {})}>
+        <Ionicons name="add" size={18} color="#fff" />
+        <Text style={styles.fabPillText}>{t('customers.addShort')}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -154,117 +236,181 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   headerBtn: {
-    padding: 4,
+    width: 32,
+    height: 32,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroWrap: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
   },
   heroCard: {
-    flexDirection: 'row',
-    backgroundColor: Colors.primary,
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.xs,
     borderRadius: Radius.lg,
+    backgroundColor: Colors.primary,
     padding: Spacing.lg,
     ...Shadow.md,
   },
+  heroHeading: {
+    ...Typography.label,
+    color: 'rgba(255,255,255,0.85)',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   heroStat: {
     flex: 1,
-    alignItems: 'center',
   },
   heroValue: {
-    ...Typography.h4,
+    ...Typography.h3,
     color: '#fff',
-    fontSize: 15,
+    fontFamily: 'monospace',
+    fontWeight: '700',
   },
   heroLabel: {
     ...Typography.caption,
-    color: 'rgba(255,255,255,0.75)',
-    marginTop: 4,
-    textAlign: 'center',
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 2,
   },
-  heroDivider: {
-    width: 1,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    marginHorizontal: Spacing.sm,
+  sortRow: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  sortText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
   },
   list: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: 100,
-    paddingTop: Spacing.xs,
-  },
-  separator: {
-    height: 8,
+    paddingBottom: 120,
   },
   customerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: Radius.lg,
+    gap: 10,
     padding: Spacing.md,
+    backgroundColor: Colors.card,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: Colors.border,
+  },
+  customerRowFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: Radius.lg,
+    borderTopRightRadius: Radius.lg,
     ...Shadow.sm,
+  },
+  customerRowWithSeparator: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    borderStyle: 'dashed',
+  },
+  customerRowLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: Radius.lg,
+    borderBottomRightRadius: Radius.lg,
+  },
+  avatarCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.full,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  avatarText: {
+    ...Typography.bodyMd,
+    fontSize: 16,
+    fontWeight: '800',
   },
   customerInfo: {
     flex: 1,
-    marginLeft: Spacing.md,
-    marginRight: Spacing.sm,
+    minWidth: 0,
   },
   customerNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   customerName: {
     ...Typography.bodyMd,
     color: Colors.text,
+    flex: 1,
   },
   tierBadge: {
-    paddingHorizontal: 8,
+    borderRadius: 4,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: Radius.full,
   },
   tierText: {
     ...Typography.label,
-    fontSize: 10,
+    color: '#fff',
+    fontSize: 9,
+    letterSpacing: 0.2,
   },
   customerPhone: {
     ...Typography.caption,
     color: Colors.textSecondary,
+    fontFamily: 'monospace',
     marginTop: 2,
   },
-  customerStats: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: 4,
-  },
-  spentText: {
-    ...Typography.captionMd,
-    color: Colors.primary,
-    fontWeight: '600',
-  },
-  orderCountText: {
+  customerMeta: {
     ...Typography.caption,
     color: Colors.textSecondary,
+    marginTop: 2,
   },
-  pointsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: Colors.warningLight,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: Radius.full,
-  },
-  pointsText: {
-    ...Typography.captionMd,
-    color: Colors.warning,
+  customerSpent: {
+    color: Colors.primary,
+    fontWeight: '700',
   },
   emptyWrap: {
     alignItems: 'center',
-    paddingVertical: 60,
-    gap: 12,
+    paddingVertical: 52,
+    gap: 10,
   },
   emptyText: {
     ...Typography.body,
     color: Colors.textSecondary,
+  },
+  loadMoreText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    paddingVertical: Spacing.md,
+  },
+  fabPill: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 6,
+    ...Shadow.md,
+  },
+  fabPillText: {
+    ...Typography.bodySm,
+    color: '#fff',
+    fontWeight: '700',
   },
 });

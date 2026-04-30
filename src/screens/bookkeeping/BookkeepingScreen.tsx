@@ -4,106 +4,129 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radius, Shadow } from '../../theme';
-import { ChipRow, Card, SectionHeader, FAB } from '../../components';
+import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
+import { FAB } from '../../components';
+import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
 
-const PERIOD_CHIPS = [{ key: 'month', label: 'Tháng này' }, { key: 'quarter', label: 'Quý này' }, { key: 'year', label: 'Năm nay' }];
-
-const LEDGERS = [
-  { key: 'sales', label: 'Sổ bán hàng', icon: 'cart-outline', count: 124, color: Colors.primary },
-  { key: 'purchase', label: 'Sổ mua hàng', icon: 'bag-handle-outline', count: 38, color: '#7c3aed' },
-  { key: 'cash', label: 'Sổ tiền mặt', icon: 'cash-outline', count: 67, color: Colors.success },
-  { key: 'bank', label: 'Sổ ngân hàng', icon: 'card-outline', count: 45, color: '#0891b2' },
-  { key: 'tax', label: 'Tờ khai thuế', icon: 'document-text-outline', count: 4, color: Colors.warning },
-  { key: 'invoice', label: 'Hóa đơn ĐT', icon: 'receipt-outline', count: 89, color: Colors.accent },
+const PERIOD_CHIPS = [
+  { key: 'month', labelKey: 'bookkeeping.period.month' },
+  { key: 'quarter', labelKey: 'bookkeeping.period.quarter' },
+  { key: 'year', labelKey: 'bookkeeping.period.year' },
 ];
 
-const RECENT = [
-  { id: 1, type: 'income', desc: 'Bán hàng tại quầy', amount: 1250000, date: '24/04', cat: 'Doanh thu' },
-  { id: 2, type: 'expense', desc: 'Nhập hàng từ NCC', amount: 3400000, date: '23/04', cat: 'Nhập hàng' },
-  { id: 3, type: 'income', desc: 'Shopee — đơn #DH002', amount: 890000, date: '23/04', cat: 'Doanh thu' },
-  { id: 4, type: 'expense', desc: 'Lương nhân viên', amount: 15000000, date: '22/04', cat: 'Lương' },
-  { id: 5, type: 'income', desc: 'Lazada — đơn #DH003', amount: 450000, date: '22/04', cat: 'Doanh thu' },
+const LEDGERS = [
+  { key: 'sales', labelKey: 'bookkeeping.ledger.sales', countKey: 'bookkeeping.ledger.salesCount', icon: 'cart-outline', amount: '420M', color: Colors.success },
+  { key: 'purchase', labelKey: 'bookkeeping.ledger.purchase', countKey: 'bookkeeping.ledger.purchaseCount', icon: 'bag-handle-outline', amount: '268M', color: '#5c83b2' },
+  { key: 'cash', labelKey: 'bookkeeping.ledger.cash', countKey: 'bookkeeping.ledger.cashCount', icon: 'wallet-outline', amount: '+152M', color: '#b0855e' },
+  { key: 'debt', labelKey: 'bookkeeping.ledger.debt', countKey: 'bookkeeping.ledger.debtCount', icon: 'cash-outline', amount: '15M', color: Colors.accent },
+  { key: 'stock', labelKey: 'bookkeeping.ledger.stock', countKey: 'bookkeeping.ledger.stockCount', icon: 'cube-outline', amount: '248M', color: '#99765f' },
+  { key: 'payroll', labelKey: 'bookkeeping.ledger.payroll', countKey: 'bookkeeping.ledger.payrollCount', icon: 'people-outline', amount: '86M', color: '#8a6a9e' },
 ];
 
 export function BookkeepingScreen() {
+  const { colors } = useThemeMode();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const nav = useNavigation<Nav>();
-  const [period, setPeriod] = useState('month');
+  const [period, setPeriod] = useState('quarter');
 
-  const income = 48250000, expense = 24800000, profit = income - expense;
+  const isQuarter = period === 'quarter';
+  const periodRange = isQuarter ? '01/10 — 31/12/2025' : period === 'month' ? '01/12 — 31/12/2025' : '01/01 — 31/12/2025';
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 12, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Sổ sách kế toán</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('bookkeeping.title')}</Text>
         <TouchableOpacity style={styles.iconBtn}>
-          <Ionicons name="download-outline" size={22} color={Colors.text} />
+          <Ionicons name="download-outline" size={22} color={colors.text} />
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: Spacing.lg, gap: 14, paddingBottom: 80 }}>
-        <ChipRow chips={PERIOD_CHIPS} selected={period} onSelect={setPeriod} />
-
-        {/* P&L hero */}
-        <View style={styles.plCard}>
-          <Text style={styles.plTitle}>Kết quả kinh doanh</Text>
-          <View style={styles.plRow}>
-            <View style={styles.plStat}>
-              <Text style={styles.plLabel}>Doanh thu</Text>
-              <Text style={styles.plVal}>{(income / 1000000).toFixed(1)}M</Text>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={[styles.periodCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.periodLeft}>
+            <View style={styles.periodIconWrap}>
+              <Ionicons name="calendar-outline" size={16} color={Colors.accent} />
             </View>
-            <View style={styles.plDivider} />
-            <View style={styles.plStat}>
-              <Text style={styles.plLabel}>Chi phí</Text>
-              <Text style={[styles.plVal, { color: 'rgba(255,255,255,0.8)' }]}>{(expense / 1000000).toFixed(1)}M</Text>
+            <View>
+              <Text style={[styles.periodTitle, { color: colors.text }]}>{t('bookkeeping.reportPeriod')}</Text>
+              <Text style={[styles.periodRange, { color: colors.textSecondary }]}>{periodRange}</Text>
             </View>
-            <View style={styles.plDivider} />
-            <View style={styles.plStat}>
-              <Text style={styles.plLabel}>Lợi nhuận</Text>
-              <Text style={[styles.plVal, { fontSize: 22 }]}>{(profit / 1000000).toFixed(1)}M</Text>
-            </View>
+          </View>
+          <View style={styles.periodSwitch}>
+            {PERIOD_CHIPS.map((chip) => {
+              const active = chip.key === period;
+              return (
+                <TouchableOpacity
+                  key={chip.key}
+                  style={[styles.periodChip, { backgroundColor: colors.card, borderColor: colors.border }, active && styles.periodChipActive]}
+                  onPress={() => setPeriod(chip.key)}
+                >
+                  <Text style={[styles.periodChipLabel, { color: colors.textSecondary }, active && styles.periodChipLabelActive]}>{t(chip.labelKey as TranslationKey)}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
-        {/* Ledger grid */}
-        <Text style={styles.sectionTitle}>SỔ KẾ TOÁN</Text>
-        <View style={styles.ledgerGrid}>
-          {LEDGERS.map(l => (
-            <TouchableOpacity key={l.key} style={styles.ledgerCard}>
-              <View style={[styles.ledgerIcon, { backgroundColor: l.color + '22' }]}>
-                <Ionicons name={l.icon as any} size={22} color={l.color} />
+        <View style={styles.plCard}>
+          <Text style={[styles.plTitle, { color: 'rgba(255,255,255,0.88)' }]}>{t('bookkeeping.plTitle')}</Text>
+          <View style={styles.profitRow}>
+            <View>
+              <Text style={[styles.profitLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('bookkeeping.netProfit')}</Text>
+              <Text style={[styles.profitValue, { color: '#fff' }]}>+62.4M</Text>
+            </View>
+            <Text style={styles.profitTrend}>▲ 18.2%</Text>
+          </View>
+          <View style={styles.plGrid}>
+            {[
+              { label: t('bookkeeping.revenue'), value: '420M' },
+              { label: t('bookkeeping.costOfGoods'), value: '268M' },
+              { label: t('bookkeeping.expense'), value: '89.6M' },
+              { label: t('tax.personalIncome'), value: '6.3M' },
+            ].map((item) => (
+              <View key={item.label} style={styles.plGridItem}>
+                <Text style={[styles.plGridLabel, { color: 'rgba(255,255,255,0.85)' }]}>{item.label}</Text>
+                <Text style={[styles.plGridValue, { color: '#fff' }]}>{item.value}</Text>
               </View>
-              <Text style={styles.ledgerLabel}>{l.label}</Text>
-              <Text style={styles.ledgerCount}>{l.count} mục</Text>
+            ))}
+          </View>
+        </View>
+
+        <View>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t('bookkeeping.detailLedgers')}</Text>
+          <View style={styles.ledgerGrid}>
+            {LEDGERS.map((ledger) => (
+              <TouchableOpacity key={ledger.key} style={[styles.ledgerCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.ledgerIcon, { backgroundColor: ledger.color + '22', borderColor: ledger.color }]}>
+                  <Ionicons name={ledger.icon as any} size={18} color={ledger.color} />
+                </View>
+                <Text style={[styles.ledgerLabel, { color: colors.text }]}>{t(ledger.labelKey as TranslationKey)}</Text>
+                <Text style={[styles.ledgerCount, { color: colors.textSecondary }]}>{t(ledger.countKey as TranslationKey)}</Text>
+                <Text style={[styles.ledgerAmount, { color: ledger.color }]}>{ledger.amount}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.actionRow}>
+          {[
+            { key: 'excel', icon: 'download-outline', labelKey: 'bookkeeping.action.exportExcel' as TranslationKey },
+            { key: 'print', icon: 'print-outline', labelKey: 'bookkeeping.action.printReport' as TranslationKey },
+            { key: 'tax', icon: 'cloud-upload-outline', labelKey: 'bookkeeping.action.submitTax' as TranslationKey },
+          ].map((action) => (
+            <TouchableOpacity key={action.key} style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name={action.icon as any} size={20} color={Colors.primary} />
+              <Text style={[styles.actionLabel, { color: colors.text }]}>{t(action.labelKey)}</Text>
             </TouchableOpacity>
           ))}
         </View>
-
-        {/* Recent entries */}
-        <SectionHeader title="GHI CHÉP GẦN ĐÂY" action="Xem tất cả" />
-        <Card padding={0}>
-          {RECENT.map((e, i) => (
-            <View key={e.id} style={[styles.entryRow, i > 0 && { borderTopWidth: 1, borderTopColor: Colors.border }]}>
-              <View style={[styles.entryDot, { backgroundColor: e.type === 'income' ? Colors.successLight : Colors.dangerLight }]}>
-                <Ionicons name={e.type === 'income' ? 'trending-up' : 'trending-down'} size={14} color={e.type === 'income' ? Colors.success : Colors.danger} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.entryDesc}>{e.desc}</Text>
-                <Text style={styles.entryCat}>{e.cat} · {e.date}</Text>
-              </View>
-              <Text style={[styles.entryAmt, { color: e.type === 'income' ? Colors.success : Colors.danger }]}>
-                {e.type === 'income' ? '+' : '-'}{e.amount.toLocaleString('vi-VN')}đ
-              </Text>
-            </View>
-          ))}
-        </Card>
       </ScrollView>
       <FAB onPress={() => nav.navigate('BookkeepingEntry')} />
     </View>
@@ -112,26 +135,125 @@ export function BookkeepingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: 12, backgroundColor: Colors.card, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 12,
+    backgroundColor: Colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
   backBtn: { marginRight: 8, padding: 4 },
   headerTitle: { ...Typography.h3, flex: 1 },
   iconBtn: { padding: 4 },
-  plCard: { backgroundColor: Colors.primary, borderRadius: Radius.lg, padding: 16 },
-  plTitle: { ...Typography.captionMd, color: 'rgba(255,255,255,0.7)', marginBottom: 12 },
-  plRow: { flexDirection: 'row' },
-  plStat: { flex: 1, alignItems: 'center' },
-  plLabel: { ...Typography.caption, color: 'rgba(255,255,255,0.7)' },
-  plVal: { ...Typography.h3, color: '#fff', marginTop: 4 },
-  plDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 8 },
-  sectionTitle: { ...Typography.label, color: Colors.textSecondary, letterSpacing: 0.6 },
+  content: { padding: Spacing.lg, gap: 14, paddingBottom: 96 },
+  periodCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.lg,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.sm,
+  },
+  periodLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  periodIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.warningLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  periodTitle: { ...Typography.captionMd },
+  periodRange: { ...Typography.caption, color: Colors.textSecondary, marginTop: 1 },
+  periodSwitch: { flexDirection: 'row', gap: 6 },
+  periodChip: {
+    flex: 1,
+    height: 30,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.card,
+  },
+  periodChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  periodChipLabel: { ...Typography.captionMd, color: Colors.textSecondary },
+  periodChipLabelActive: { color: '#fff' },
+  plCard: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.lg,
+    padding: 14,
+    ...Shadow.md,
+  },
+  plTitle: { ...Typography.label, color: 'rgba(255,255,255,0.84)', marginBottom: 8 },
+  profitRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  profitLabel: { ...Typography.caption, color: 'rgba(255,255,255,0.85)' },
+  profitValue: { ...Typography.h1, color: '#fff', marginTop: 2 },
+  profitTrend: { ...Typography.bodyMd, color: '#ffd968', marginBottom: 4 },
+  plGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  plGridItem: {
+    width: '48.8%',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.34)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    padding: 8,
+  },
+  plGridLabel: { ...Typography.caption, color: 'rgba(255,255,255,0.85)' },
+  plGridValue: { ...Typography.h4, color: '#fff', marginTop: 1 },
+  sectionTitle: { ...Typography.label, color: Colors.textSecondary, letterSpacing: 0.5, marginBottom: 8 },
   ledgerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  ledgerCard: { width: '30.5%', backgroundColor: Colors.card, borderRadius: Radius.lg, padding: 12, alignItems: 'center', ...Shadow.sm },
-  ledgerIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  ledgerLabel: { ...Typography.captionMd, textAlign: 'center' },
+  ledgerCard: {
+    width: '48.3%',
+    backgroundColor: Colors.card,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 12,
+    ...Shadow.sm,
+  },
+  ledgerIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  ledgerLabel: { ...Typography.captionMd, color: Colors.text },
   ledgerCount: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  entryRow: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 10 },
-  entryDot: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  entryDesc: { ...Typography.bodyMd },
-  entryCat: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  entryAmt: { ...Typography.bodyMd },
+  ledgerAmount: { ...Typography.h4, marginTop: 4 },
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  actionCard: {
+    flex: 1,
+    backgroundColor: Colors.card,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.sm,
+  },
+  actionLabel: { ...Typography.captionMd, marginTop: 4 },
 });

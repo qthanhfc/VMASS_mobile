@@ -7,15 +7,19 @@ import {
   StyleSheet,
   TextInput,
 } from 'react-native';
+import { RouteProp, useRoute } from '@react-navigation/native';
 import { Header } from '../../components/Header';
 import { ChipRow } from '../../components/ChipRow';
 import { FormField } from '../../components/FormField';
 import { SearchBar } from '../../components/SearchBar';
 import { SectionHeader } from '../../components/SectionHeader';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radius, Shadow } from '../../theme';
+import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
+import { ManageStackParamList, ScanActionItem } from '../../navigation';
 
-const MODES = [
+type InventoryMode = 'import' | 'export' | 'transfer' | 'audit';
+
+const MODES: Array<{ key: InventoryMode; label: string }> = [
   { key: 'import', label: 'Nhập hàng' },
   { key: 'export', label: 'Xuất hàng' },
   { key: 'transfer', label: 'Chuyển kho' },
@@ -35,19 +39,35 @@ interface CartItem {
   qty: number;
   cost: number;
 }
+type InventoryEditRoute = RouteProp<ManageStackParamList, 'InventoryEdit'>;
 
 const MOCK_PRODUCTS: CartItem[] = [
   { id: '1', name: 'Áo thun nam basic', sku: 'ATN-001', qty: 1, cost: 120000 },
   { id: '3', name: 'Áo khoác dù unisex', sku: 'AKD-003', qty: 2, cost: 450000 },
 ];
 
+const buildItemsFromScanItems = (scanItems: ScanActionItem[] = []): CartItem[] => {
+  return scanItems.map((scanItem, index) => ({
+    id: scanItem.sku || scanItem.code || `scan-${index}`,
+    name: scanItem.name,
+    sku: scanItem.sku || scanItem.code,
+    qty: scanItem.qty,
+    cost: 0,
+  }));
+};
+
 export function InventoryEditScreen({ navigation }: any) {
-  const [mode, setMode] = useState('import');
+  const { colors } = useThemeMode();
+  const route = useRoute<InventoryEditRoute>();
+  const [mode, setMode] = useState<InventoryMode>(route.params?.mode ?? 'import');
   const [search, setSearch] = useState('');
   const [branch, setBranch] = useState('main');
   const [toBranch, setToBranch] = useState('center');
   const [notes, setNotes] = useState('');
-  const [items, setItems] = useState<CartItem[]>(MOCK_PRODUCTS);
+  const [items, setItems] = useState<CartItem[]>(() => {
+    const scanItems = buildItemsFromScanItems(route.params?.scanItems);
+    return scanItems.length > 0 ? scanItems : MOCK_PRODUCTS;
+  });
   const [showBranchPicker, setShowBranchPicker] = useState(false);
 
   const updateQty = (id: string, delta: number) => {
@@ -57,7 +77,7 @@ export function InventoryEditScreen({ navigation }: any) {
   const total = items.reduce((sum, i) => sum + i.qty * i.cost, 0);
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <Header
         title="Điều chỉnh tồn kho"
         onBack={() => navigation?.goBack()}
@@ -66,7 +86,7 @@ export function InventoryEditScreen({ navigation }: any) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         {/* Mode selector */}
         <View style={styles.section}>
-          <ChipRow chips={MODES} selected={mode} onSelect={setMode} />
+          <ChipRow chips={MODES} selected={mode} onSelect={(key) => setMode(key as InventoryMode)} />
         </View>
 
         {/* Product search */}
@@ -85,17 +105,17 @@ export function InventoryEditScreen({ navigation }: any) {
           <View style={styles.section}>
             <SectionHeader title={`Danh sách (${items.length} SP)`} />
             {items.map(item => (
-              <View key={item.id} style={styles.itemRow}>
+              <View key={item.id} style={[styles.itemRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.itemInfo}>
-                  <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.itemSku}>{item.sku} · {item.cost.toLocaleString('vi-VN')} đ</Text>
+                  <Text style={[styles.itemName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+                  <Text style={[styles.itemSku, { color: colors.textSecondary }]}>{item.sku} · {item.cost.toLocaleString('vi-VN')} đ</Text>
                 </View>
                 <View style={styles.stepper}>
-                  <TouchableOpacity style={styles.stepBtn} onPress={() => updateQty(item.id, -1)}>
+                  <TouchableOpacity style={[styles.stepBtn, { backgroundColor: colors.background, borderColor: colors.border }]} onPress={() => updateQty(item.id, -1)}>
                     <Ionicons name="remove" size={16} color={Colors.danger} />
                   </TouchableOpacity>
-                  <Text style={styles.stepQty}>{item.qty}</Text>
-                  <TouchableOpacity style={styles.stepBtn} onPress={() => updateQty(item.id, 1)}>
+                  <Text style={[styles.stepQty, { color: colors.text }]}>{item.qty}</Text>
+                  <TouchableOpacity style={[styles.stepBtn, { backgroundColor: colors.background, borderColor: colors.border }]} onPress={() => updateQty(item.id, 1)}>
                     <Ionicons name="add" size={16} color={Colors.success} />
                   </TouchableOpacity>
                 </View>
@@ -108,23 +128,23 @@ export function InventoryEditScreen({ navigation }: any) {
         <View style={styles.section}>
           <SectionHeader title={mode === 'transfer' ? 'Kho xuất' : 'Chi nhánh'} />
           <TouchableOpacity
-            style={styles.picker}
+            style={[styles.picker, { backgroundColor: colors.card, borderColor: colors.border }]}
             onPress={() => setShowBranchPicker(!showBranchPicker)}
           >
-            <Text style={styles.pickerText}>
+            <Text style={[styles.pickerText, { color: colors.text }]}>
               {BRANCHES.find(b => b.key === branch)?.label || 'Chọn chi nhánh'}
             </Text>
-            <Ionicons name="chevron-down" size={16} color={Colors.textSecondary} />
+            <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
           </TouchableOpacity>
           {showBranchPicker && (
-            <View style={styles.pickerDropdown}>
+            <View style={[styles.pickerDropdown, { backgroundColor: colors.card, borderColor: colors.border }]}>
               {BRANCHES.map(b => (
                 <TouchableOpacity
                   key={b.key}
-                  style={styles.pickerOption}
+                  style={[styles.pickerOption, { borderBottomColor: colors.border }]}
                   onPress={() => { setBranch(b.key); setShowBranchPicker(false); }}
                 >
-                  <Text style={[styles.pickerOptionText, b.key === branch && styles.pickerOptionActive]}>
+                  <Text style={[styles.pickerOptionText, { color: colors.text }, b.key === branch && styles.pickerOptionActive]}>
                     {b.label}
                   </Text>
                   {b.key === branch && <Ionicons name="checkmark" size={16} color={Colors.primary} />}
@@ -135,12 +155,12 @@ export function InventoryEditScreen({ navigation }: any) {
 
           {mode === 'transfer' && (
             <>
-              <Text style={styles.transferLabel}>Kho nhập</Text>
-              <TouchableOpacity style={styles.picker}>
-                <Text style={styles.pickerText}>
+              <Text style={[styles.transferLabel, { color: colors.textSecondary }]}>Kho nhập</Text>
+              <TouchableOpacity style={[styles.picker, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.pickerText, { color: colors.text }]}>
                   {BRANCHES.find(b => b.key === toBranch)?.label}
                 </Text>
-                <Ionicons name="chevron-down" size={16} color={Colors.textSecondary} />
+                <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
               </TouchableOpacity>
             </>
           )}
@@ -149,13 +169,13 @@ export function InventoryEditScreen({ navigation }: any) {
         {/* Notes */}
         <View style={styles.section}>
           <SectionHeader title="Ghi chú" />
-          <View style={styles.notesWrap}>
+          <View style={[styles.notesWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <TextInput
-              style={styles.notes}
+              style={[styles.notes, { color: colors.text }]}
               value={notes}
               onChangeText={setNotes}
               placeholder="Nhập ghi chú (tùy chọn)..."
-              placeholderTextColor={Colors.textSecondary}
+              placeholderTextColor={colors.textSecondary}
               multiline
               numberOfLines={3}
             />
@@ -163,19 +183,19 @@ export function InventoryEditScreen({ navigation }: any) {
         </View>
 
         {/* Summary */}
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Tổng kết</Text>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Số loại sản phẩm</Text>
-            <Text style={styles.summaryVal}>{items.length} SP</Text>
+        <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.summaryTitle, { color: colors.text }]}>Tổng kết</Text>
+          <View style={[styles.summaryRow, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Số loại sản phẩm</Text>
+            <Text style={[styles.summaryVal, { color: colors.text }]}>{items.length} SP</Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Tổng số lượng</Text>
-            <Text style={styles.summaryVal}>{items.reduce((s, i) => s + i.qty, 0)} cái</Text>
+          <View style={[styles.summaryRow, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Tổng số lượng</Text>
+            <Text style={[styles.summaryVal, { color: colors.text }]}>{items.reduce((s, i) => s + i.qty, 0)} cái</Text>
           </View>
-          <View style={[styles.summaryRow, styles.summaryTotalRow]}>
-            <Text style={styles.summaryTotalLabel}>Tổng giá trị</Text>
-            <Text style={styles.summaryTotalVal}>{total.toLocaleString('vi-VN')} đ</Text>
+          <View style={[styles.summaryRow, styles.summaryTotalRow, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.summaryTotalLabel, { color: colors.text }]}>Tổng giá trị</Text>
+            <Text style={[styles.summaryTotalVal, { color: colors.primary }]}>{total.toLocaleString('vi-VN')} đ</Text>
           </View>
         </View>
 

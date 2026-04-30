@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Colors, Typography, Spacing, Radius } from '../theme';
+import { Colors, Typography, Spacing, Radius, useThemeMode } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
 interface ListItemProps {
@@ -13,16 +13,18 @@ interface ListItemProps {
 }
 
 export function ListItem({ title, subtitle, right, left, onPress, showChevron = true }: ListItemProps) {
+  const { colors } = useThemeMode();
+
   return (
-    <TouchableOpacity onPress={onPress} style={styles.item} activeOpacity={0.7}>
+    <TouchableOpacity onPress={onPress} style={[styles.item, { backgroundColor: colors.card, borderBottomColor: colors.border }]} activeOpacity={0.7}>
       {left && <View style={styles.left}>{left}</View>}
       <View style={styles.content}>
-        <Text style={styles.title} numberOfLines={1}>{title}</Text>
-        {subtitle && <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>}
+        <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{title}</Text>
+        {subtitle && <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={1}>{subtitle}</Text>}
       </View>
       {right && <View style={styles.right}>{right}</View>}
       {showChevron && !right && (
-        <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />
+        <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
       )}
     </TouchableOpacity>
   );

@@ -18,6 +18,20 @@ router.get('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.post('/image-search', async (req, res) => {
+  res.status(501).json({
+    error: 'Image product search is not implemented yet',
+    expectedResponse: {
+      product: {
+        id: 1,
+        sku: 'SKU001',
+        name: 'Tên sản phẩm',
+        confidence: 0.92,
+      },
+    },
+  });
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const { rows } = await db.query('SELECT * FROM products WHERE id=$1', [req.params.id]);

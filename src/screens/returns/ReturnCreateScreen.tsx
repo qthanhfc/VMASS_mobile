@@ -3,36 +3,50 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radius } from '../../theme';
+import { Colors, Spacing, Typography, Radius, useThemeMode } from '../../theme';
 import { FormField, Card, SectionHeader } from '../../components';
+import { useLanguage, type TranslationKey } from '../../i18n';
 
-const REASONS = ['Lỗi sản phẩm', 'Không vừa size', 'Hết hạn sử dụng', 'Giao sai hàng', 'Không như mô tả', 'Khác'];
-const REFUND_METHODS = ['Tiền mặt', 'Chuyển khoản', 'Hoàn điểm tích lũy'];
+const REASONS = [
+  { key: 'defective', labelKey: 'returns.reason.defective' },
+  { key: 'wrongSize', labelKey: 'returns.reason.wrongSize' },
+  { key: 'expired', labelKey: 'returns.reason.expired' },
+  { key: 'wrongItem', labelKey: 'returns.reason.wrongItem' },
+  { key: 'notAsDescribed', labelKey: 'returns.reason.notAsDescribed' },
+  { key: 'other', labelKey: 'returns.reason.other' },
+] as const;
+const REFUND_METHODS = [
+  { key: 'cash', labelKey: 'bookkeeping.entry.account.cash' },
+  { key: 'bankTransfer', labelKey: 'returns.refund.bankTransfer' },
+  { key: 'loyaltyPoints', labelKey: 'returns.refund.loyaltyPoints' },
+] as const;
 
 export function ReturnCreateScreen() {
+  const { colors } = useThemeMode();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
   const [orderNum, setOrderNum] = useState('');
   const [reason, setReason] = useState('');
-  const [refundMethod, setRefundMethod] = useState('Tiền mặt');
+  const [refundMethod, setRefundMethod] = useState('cash');
   const [notes, setNotes] = useState('');
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Tạo phiếu trả hàng</Text>
-        <TouchableOpacity style={styles.saveBtn}><Text style={styles.saveTxt}>Tạo</Text></TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('returns.createTitle')}</Text>
+        <TouchableOpacity style={styles.saveBtn}><Text style={styles.saveTxt}>{t('returns.createAction')}</Text></TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: Spacing.lg, gap: 16, paddingBottom: 40 }}>
         <Card padding={14}>
-          <SectionHeader title="ĐƠN HÀNG GỐC" />
+          <SectionHeader title={t('returns.originalOrder')} />
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
             <View style={{ flex: 1 }}>
-              <FormField label="Mã đơn hàng" value={orderNum} onChangeText={setOrderNum} placeholder="DH00000001" />
+              <FormField label={t('returns.orderCode')} value={orderNum} onChangeText={setOrderNum} placeholder="DH00000001" />
             </View>
             <TouchableOpacity style={styles.searchBtn}>
               <Ionicons name="search" size={20} color="#fff" />
@@ -41,36 +55,36 @@ export function ReturnCreateScreen() {
         </Card>
 
         <Card padding={14}>
-          <SectionHeader title="LÝ DO TRẢ HÀNG" />
+          <SectionHeader title={t('returns.reasonTitle')} />
           <View style={styles.reasonGrid}>
             {REASONS.map(r => (
-              <TouchableOpacity key={r} onPress={() => setReason(r)}
-                style={[styles.reasonChip, reason === r && styles.reasonActive]}>
-                <Text style={[styles.reasonLabel, reason === r && { color: '#fff' }]}>{r}</Text>
+              <TouchableOpacity key={r.key} onPress={() => setReason(r.key)}
+                style={[styles.reasonChip, reason === r.key && styles.reasonActive]}>
+                <Text style={[styles.reasonLabel, reason === r.key && { color: '#fff' }]}>{t(r.labelKey as TranslationKey)}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </Card>
 
         <Card padding={14}>
-          <SectionHeader title="HÌNH THỨC HOÀN TIỀN" />
+          <SectionHeader title={t('returns.refundMethodTitle')} />
           <View style={styles.methodRow}>
             {REFUND_METHODS.map(m => (
-              <TouchableOpacity key={m} onPress={() => setRefundMethod(m)}
-                style={[styles.methodChip, refundMethod === m && styles.methodActive]}>
-                <Text style={[styles.methodLabel, refundMethod === m && { color: '#fff' }]}>{m}</Text>
+              <TouchableOpacity key={m.key} onPress={() => setRefundMethod(m.key)}
+                style={[styles.methodChip, refundMethod === m.key && styles.methodActive]}>
+                <Text style={[styles.methodLabel, refundMethod === m.key && { color: '#fff' }]}>{t(m.labelKey as TranslationKey)}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </Card>
 
         <Card padding={14}>
-          <FormField label="Ghi chú" value={notes} onChangeText={setNotes} placeholder="Thêm ghi chú..." multiline numberOfLines={3} />
+          <FormField label={t('returns.notes')} value={notes} onChangeText={setNotes} placeholder={t('returns.notesPlaceholder')} multiline numberOfLines={3} />
         </Card>
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Số tiền hoàn trả</Text>
-          <Text style={styles.summaryVal}>0 đ</Text>
+          <Text style={styles.summaryLabel}>{t('returns.refundAmount')}</Text>
+          <Text style={styles.summaryVal}>0 {t('home.currency')}</Text>
         </View>
       </ScrollView>
     </View>

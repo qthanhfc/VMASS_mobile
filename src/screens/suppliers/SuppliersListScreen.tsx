@@ -1,108 +1,411 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radius, Shadow } from '../../theme';
-import { SearchBar, StatusBadge, FAB } from '../../components';
+import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
+import { ChipRow, SearchBar, FAB } from '../../components';
+import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
 
-const MOCK_SUPPLIERS = [
-  { id: 1, name: 'Công ty CP Thời Trang Việt', phone: '02812345678', contactPerson: 'Anh Hùng', category: 'Thời trang', currentDebt: 15000000, totalOrders: 24, status: 'active' },
-  { id: 2, name: 'NCC Thực Phẩm Sạch', phone: '02823456789', contactPerson: 'Chị Lan', category: 'Thực phẩm', currentDebt: 0, totalOrders: 38, status: 'active' },
-  { id: 3, name: 'Mỹ Phẩm Hàn Quốc', phone: '02834567890', contactPerson: 'Anh Tuấn', category: 'Mỹ phẩm', currentDebt: 8500000, totalOrders: 15, status: 'active' },
-  { id: 4, name: 'Công ty Điện Tử ABC', phone: '02845678901', contactPerson: 'Chị Hoa', category: 'Điện tử', currentDebt: 0, totalOrders: 7, status: 'inactive' },
+type SupplierStatus = 'active' | 'paused';
+type SupplierCategory = 'beverage' | 'food' | 'dairy' | 'household' | 'snacks';
+
+interface Supplier {
+  id: number;
+  name: string;
+  code: string;
+  category: SupplierCategory;
+  contactPerson: string;
+  phone: string;
+  currentDebt: number;
+  totalOrders: number;
+  status: SupplierStatus;
+  color: string;
+}
+
+const CATEGORY_LABEL_KEYS: Record<SupplierCategory, TranslationKey> = {
+  beverage: 'suppliers.category.beverage',
+  food: 'suppliers.category.food',
+  dairy: 'suppliers.category.dairy',
+  household: 'suppliers.category.household',
+  snacks: 'suppliers.category.snacks',
+};
+
+const MOCK_SUPPLIERS: Supplier[] = [
+  {
+    id: 1,
+    name: 'Công ty TNHH Trung Nguyên',
+    code: 'NCC-001',
+    category: 'beverage',
+    contactPerson: 'Anh Khải',
+    phone: '02812345678',
+    currentDebt: 12400000,
+    totalOrders: 42,
+    status: 'active',
+    color: '#d97757',
+  },
+  {
+    id: 2,
+    name: 'Masan Consumer',
+    code: 'NCC-002',
+    category: 'food',
+    contactPerson: 'Chị Duyên',
+    phone: '02822334455',
+    currentDebt: 0,
+    totalOrders: 58,
+    status: 'active',
+    color: '#4a9f4a',
+  },
+  {
+    id: 3,
+    name: 'Vinamilk',
+    code: 'NCC-003',
+    category: 'dairy',
+    contactPerson: 'Anh Nam',
+    phone: '02833445566',
+    currentDebt: 3800000,
+    totalOrders: 31,
+    status: 'active',
+    color: '#6b8cae',
+  },
+  {
+    id: 4,
+    name: 'Unilever Việt Nam',
+    code: 'NCC-004',
+    category: 'household',
+    contactPerson: 'Chị Hà',
+    phone: '02844556677',
+    currentDebt: 5200000,
+    totalOrders: 24,
+    status: 'active',
+    color: '#8a6a9e',
+  },
+  {
+    id: 5,
+    name: 'Mondelez Kinh Đô',
+    code: 'NCC-005',
+    category: 'snacks',
+    contactPerson: 'Anh Long',
+    phone: '02855667788',
+    currentDebt: 0,
+    totalOrders: 18,
+    status: 'active',
+    color: '#d4a574',
+  },
+  {
+    id: 6,
+    name: 'Nestlé Việt Nam',
+    code: 'NCC-006',
+    category: 'beverage',
+    contactPerson: 'Chị My',
+    phone: '02866778899',
+    currentDebt: 2100000,
+    totalOrders: 15,
+    status: 'paused',
+    color: '#b08968',
+  },
 ];
 
+const FILTER_CHIPS = [
+  { key: 'all', labelKey: 'messages.filter.all' },
+  { key: 'beverage', labelKey: 'suppliers.category.beverage' },
+  { key: 'food', labelKey: 'suppliers.category.food' },
+  { key: 'dairy', labelKey: 'suppliers.category.dairy' },
+  { key: 'household', labelKey: 'suppliers.category.household' },
+  { key: 'snacks', labelKey: 'suppliers.category.snacks' },
+  { key: 'withDebt', labelKey: 'suppliers.withDebt' },
+] as const;
+
+type FilterKey = (typeof FILTER_CHIPS)[number]['key'];
+
+const formatMoneyShort = (value: number) => `${(value / 1_000_000).toFixed(1)}M`;
+
 export function SuppliersListScreen() {
+  const { colors } = useThemeMode();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const nav = useNavigation<Nav>();
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<FilterKey>('all');
 
-  const filtered = MOCK_SUPPLIERS.filter(s => !search || s.name.toLowerCase().includes(search.toLowerCase()));
-  const totalDebt = MOCK_SUPPLIERS.reduce((sum, s) => sum + s.currentDebt, 0);
+  const totalDebt = useMemo(
+    () => MOCK_SUPPLIERS.reduce((sum, supplier) => sum + supplier.currentDebt, 0),
+    []
+  );
+  const totalOrders = useMemo(
+    () => MOCK_SUPPLIERS.reduce((sum, supplier) => sum + supplier.totalOrders, 0),
+    []
+  );
+  const activeCount = useMemo(
+    () => MOCK_SUPPLIERS.filter(supplier => supplier.status === 'active').length,
+    []
+  );
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return MOCK_SUPPLIERS.filter(supplier => {
+      const categoryMatched =
+        filter === 'all'
+          ? true
+          : filter === 'withDebt'
+            ? supplier.currentDebt > 0
+            : supplier.category === filter;
+
+      if (!categoryMatched) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return (
+        supplier.name.toLowerCase().includes(query) ||
+        supplier.code.toLowerCase().includes(query) ||
+        supplier.phone.includes(query) ||
+        supplier.contactPerson.toLowerCase().includes(query)
+      );
+    });
+  }, [filter, search]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 12, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Nhà cung cấp</Text>
+        <View style={styles.headerMain}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>{t('suppliers.title')}</Text>
+          <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
+            {t('suppliers.subtitle', { count: MOCK_SUPPLIERS.length, debt: formatMoneyShort(totalDebt) })}
+          </Text>
+        </View>
         <TouchableOpacity onPress={() => nav.navigate('SupplierEdit', {})} style={styles.iconBtn}>
           <Ionicons name="add" size={24} color={Colors.primary} />
         </TouchableOpacity>
       </View>
 
-      {/* Summary */}
-      <View style={styles.summaryRow}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryVal}>{MOCK_SUPPLIERS.length}</Text>
-          <Text style={styles.summaryLabel}>Nhà cung cấp</Text>
-        </View>
-        <View style={[styles.summaryCard, { borderLeftWidth: 1, borderLeftColor: Colors.border }]}>
-          <Text style={[styles.summaryVal, totalDebt > 0 && { color: Colors.danger }]}>
-            {(totalDebt / 1000000).toFixed(1)}M đ
-          </Text>
-          <Text style={styles.summaryLabel}>Tổng công nợ</Text>
-        </View>
+      <SearchBar value={search} onChangeText={setSearch} placeholder={t('suppliers.searchPlaceholder')} />
+
+      <View style={styles.statsRow}>
+        {[
+          { label: t('suppliers.stat.total'), value: String(MOCK_SUPPLIERS.length), color: colors.text },
+          { label: t('suppliers.stat.active'), value: String(activeCount), color: Colors.success },
+          { label: t('suppliers.stat.debt'), value: formatMoneyShort(totalDebt), color: Colors.accent },
+          { label: t('suppliers.stat.purchaseOrders'), value: String(totalOrders), color: Colors.primary },
+        ].map(stat => (
+          <View key={stat.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.statValue, { color: stat.color }]}>{stat.value}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{stat.label}</Text>
+          </View>
+        ))}
       </View>
 
-      <SearchBar value={search} onChangeText={setSearch} placeholder="Tìm nhà cung cấp..." />
+      <ChipRow chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))} selected={filter} onSelect={key => setFilter(key as FilterKey)} />
 
       <FlatList
         data={filtered}
-        keyExtractor={i => String(i.id)}
-        contentContainerStyle={{ paddingBottom: 80 }}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.row} onPress={() => nav.navigate('SupplierEdit', { id: item.id })}>
-            <View style={styles.logo}>
-              <Text style={styles.logoText}>{item.name[0]}</Text>
+        keyExtractor={item => String(item.id)}
+        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            <Ionicons name="search-outline" size={24} color={Colors.textSecondary} />
+            <Text style={styles.emptyText}>{t('suppliers.empty')}</Text>
+          </View>
+        }
+        renderItem={({ item, index }) => (
+          <TouchableOpacity
+            style={[
+              styles.row,
+              index === 0 && styles.rowFirst,
+              index === filtered.length - 1 && styles.rowLast,
+              item.status === 'paused' && styles.rowPaused,
+            ]}
+            onPress={() => nav.navigate('SupplierEdit', { id: item.id })}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.logo, { borderColor: item.color, backgroundColor: `${item.color}22` }]}>
+              <Ionicons name="cube-outline" size={20} color={item.color} />
             </View>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-                <View style={[styles.catBadge]}><Text style={styles.catLabel}>{item.category}</Text></View>
-              </View>
-              <Text style={styles.contact}>{item.contactPerson} · {item.phone}</Text>
-              <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
-                <Text style={{ ...Typography.caption, color: Colors.textSecondary }}>{item.totalOrders} đơn nhập</Text>
-                {item.currentDebt > 0 && (
-                  <Text style={{ ...Typography.captionMd, color: Colors.danger }}>
-                    Nợ: {item.currentDebt.toLocaleString('vi-VN')}đ
-                  </Text>
-                )}
+
+            <View style={styles.infoCol}>
+              <Text style={styles.name} numberOfLines={1}>
+                {item.name}
+              </Text>
+              <Text style={styles.meta}>
+                {item.code} · {t(CATEGORY_LABEL_KEYS[item.category])}
+              </Text>
+              <View style={styles.bottomRow}>
+                <Text style={styles.ordersText}>{t('suppliers.purchaseOrderCount', { count: item.totalOrders })}</Text>
+                <Text
+                  style={[
+                    styles.debtText,
+                    { color: item.currentDebt > 0 ? Colors.accent : Colors.success },
+                  ]}
+                >
+                  {t('suppliers.debtValue', { value: item.currentDebt > 0 ? formatMoneyShort(item.currentDebt) : '0' })}
+                </Text>
               </View>
             </View>
-            <View style={[styles.statusDot, { backgroundColor: item.status === 'active' ? Colors.success : Colors.textSecondary }]} />
+
+            <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />
           </TouchableOpacity>
         )}
-        ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: Colors.border }} />}
       />
-      <FAB onPress={() => nav.navigate('SupplierEdit', {})} />
+
+      <FAB
+        onPress={() => nav.navigate('SupplierEdit', {})}
+        style={{ bottom: 20 + insets.bottom }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: 12, backgroundColor: Colors.card, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  backBtn: { marginRight: 8, padding: 4 },
-  headerTitle: { ...Typography.h3, flex: 1 },
-  iconBtn: { padding: 4 },
-  summaryRow: { flexDirection: 'row', backgroundColor: Colors.card, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  summaryCard: { flex: 1, alignItems: 'center', paddingVertical: 14 },
-  summaryVal: { ...Typography.h2, color: Colors.text },
-  summaryLabel: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', padding: Spacing.lg, backgroundColor: Colors.card, gap: 12 },
-  logo: { width: 44, height: 44, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
-  logoText: { ...Typography.h3, color: Colors.primary },
-  name: { ...Typography.bodyMd, flex: 1 },
-  contact: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  catBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.full, backgroundColor: Colors.primaryLight },
-  catLabel: { ...Typography.label, color: Colors.primary },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 12,
+    backgroundColor: Colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  backBtn: {
+    marginRight: 8,
+    padding: 4,
+  },
+  headerMain: {
+    flex: 1,
+  },
+  headerTitle: {
+    ...Typography.h3,
+  },
+  headerSub: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  iconBtn: {
+    padding: 4,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    gap: 8,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 66,
+    ...Shadow.sm,
+  },
+  statValue: {
+    ...Typography.h4,
+    fontWeight: '700',
+  },
+  statLabel: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 1,
+    fontSize: 11,
+  },
+  listContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 96,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: Colors.card,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  rowFirst: {
+    borderTopWidth: 0,
+    borderTopLeftRadius: Radius.lg,
+    borderTopRightRadius: Radius.lg,
+    marginTop: Spacing.xs,
+  },
+  rowLast: {
+    borderBottomLeftRadius: Radius.lg,
+    borderBottomRightRadius: Radius.lg,
+    marginBottom: Spacing.sm,
+  },
+  rowPaused: {
+    opacity: 0.6,
+  },
+  logo: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoCol: {
+    flex: 1,
+  },
+  name: {
+    ...Typography.bodyMd,
+    color: Colors.text,
+  },
+  meta: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+    gap: 8,
+  },
+  ordersText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+  },
+  debtText: {
+    ...Typography.captionMd,
+    textTransform: 'lowercase',
+  },
+  emptyWrap: {
+    marginTop: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: 24,
+    gap: 8,
+  },
+  emptyText: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+  },
 });

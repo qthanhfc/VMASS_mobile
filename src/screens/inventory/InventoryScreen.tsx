@@ -1,154 +1,275 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
-  FlatList,
+  ScrollView,
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
 import { Header } from '../../components/Header';
-import { StatCard } from '../../components/StatCard';
-import { SearchBar } from '../../components/SearchBar';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radius, Shadow } from '../../theme';
+import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 
-const BRANCHES = [
-  { key: 'main', label: 'Cửa hàng chính' },
-  { key: 'center', label: 'Kho trung tâm' },
-  { key: 'q3', label: 'CN Quận 3' },
+const WAREHOUSES = [
+  { key: 'all', label: 'Tất cả kho' },
+  { key: 'q1', label: 'CH Q1' },
+  { key: 'q7', label: 'CH Q7' },
+  { key: 'total', label: 'Kho tổng' },
+  { key: 'consign', label: 'Ký gửi' },
 ];
 
 const QUICK_ACTIONS = [
-  { key: 'import', label: 'Nhập hàng', icon: 'arrow-down-circle' as const, color: Colors.success },
-  { key: 'export', label: 'Xuất hàng', icon: 'arrow-up-circle' as const, color: Colors.warning },
-  { key: 'transfer', label: 'Chuyển kho', icon: 'swap-horizontal' as const, color: Colors.primary },
-  { key: 'audit', label: 'Kiểm kê', icon: 'clipboard' as const, color: '#7c3aed' },
+  {
+    key: 'stock-in',
+    title: 'Nhập kho',
+    subtitle: 'Tạo phiếu',
+    icon: 'arrow-up' as const,
+    iconColor: Colors.primary,
+    iconBg: '#c4e4f2',
+    iconBorder: Colors.primary,
+  },
+  {
+    key: 'stock-out',
+    title: 'Xuất kho',
+    subtitle: 'Tạo phiếu',
+    icon: 'arrow-down' as const,
+    iconColor: '#c97a7a',
+    iconBg: '#f0d4d4',
+    iconBorder: '#c97a7a',
+  },
+  {
+    key: 'transfer',
+    title: 'Chuyển kho',
+    subtitle: 'Giữa các kho',
+    icon: 'repeat' as const,
+    iconColor: '#c4a274',
+    iconBg: '#f4e5c4',
+    iconBorder: '#c4a274',
+  },
+  {
+    key: 'stocktake',
+    title: 'Kiểm kê',
+    subtitle: 'So sánh',
+    icon: 'checkmark' as const,
+    iconColor: '#7a9e7a',
+    iconBg: '#d4e4c4',
+    iconBorder: '#7a9e7a',
+  },
 ];
 
 const ITEMS = [
-  { id: '1', name: 'Áo thun nam basic', sku: 'ATN-001', qty: 0, minStock: 10, cost: 120000, unit: 'cái' },
-  { id: '2', name: 'Quần jean nữ slim', sku: 'QJN-002', qty: 5, minStock: 10, cost: 280000, unit: 'cái' },
-  { id: '3', name: 'Áo khoác dù unisex', sku: 'AKD-003', qty: 32, minStock: 10, cost: 450000, unit: 'cái' },
-  { id: '4', name: 'Giày thể thao nam', sku: 'GTT-004', qty: 8, minStock: 10, cost: 650000, unit: 'đôi' },
-  { id: '5', name: 'Túi xách nữ mini', sku: 'TXN-005', qty: 15, minStock: 5, cost: 320000, unit: 'cái' },
-  { id: '6', name: 'Mũ lưỡi trai', sku: 'MLT-006', qty: 0, minStock: 5, cost: 85000, unit: 'cái' },
-  { id: '7', name: 'Dây lưng da nam', sku: 'DLD-007', qty: 22, minStock: 8, cost: 195000, unit: 'cái' },
-  { id: '8', name: 'Ví da nữ', sku: 'VDN-008', qty: 3, minStock: 5, cost: 240000, unit: 'cái' },
+  {
+    id: '1',
+    name: 'Cà phê G7 (3 trong 1)',
+    sku: 'SP-0421',
+    qty: 124,
+    minStock: 20,
+    unit: 'gói',
+    location: 'Kệ A3-02',
+    warehouse: 'q1',
+  },
+  {
+    id: '2',
+    name: 'Coca-Cola lon 330ml',
+    sku: 'SP-0305',
+    qty: 88,
+    minStock: 30,
+    unit: 'lon',
+    location: 'Kệ B1-14',
+    warehouse: 'q7',
+  },
+  {
+    id: '3',
+    name: 'Pepsi 330ml',
+    sku: 'SP-0307',
+    qty: 3,
+    minStock: 30,
+    unit: 'lon',
+    location: 'Kệ B1-15',
+    warehouse: 'q7',
+  },
+  {
+    id: '4',
+    name: 'Dầu ăn Neptune 1L',
+    sku: 'SP-0502',
+    qty: 2,
+    minStock: 10,
+    unit: 'chai',
+    location: 'Kệ C2-04',
+    warehouse: 'total',
+  },
+  {
+    id: '5',
+    name: 'Bột giặt Omo 800g',
+    sku: 'SP-0701',
+    qty: 1,
+    minStock: 8,
+    unit: 'gói',
+    location: 'Kệ D4-11',
+    warehouse: 'total',
+  },
+  {
+    id: '6',
+    name: 'Mì Hảo Hảo tôm chua',
+    sku: 'SP-0118',
+    qty: 42,
+    minStock: 20,
+    unit: 'gói',
+    location: 'Kệ A2-08',
+    warehouse: 'q1',
+  },
 ];
 
-function stockColor(qty: number, minStock: number) {
-  if (qty === 0) return Colors.danger;
-  if (qty <= minStock) return Colors.warning;
-  return Colors.success;
+function isLowStock(qty: number, minStock: number) {
+  return qty <= minStock;
 }
 
 export function InventoryScreen({ navigation }: any) {
-  const [branch, setBranch] = useState('main');
-  const [search, setSearch] = useState('');
+  const { colors } = useThemeMode();
+  const [warehouse, setWarehouse] = useState('all');
 
-  const filtered = ITEMS.filter(
-    i => i.name.toLowerCase().includes(search.toLowerCase()) || i.sku.toLowerCase().includes(search.toLowerCase())
+  const filteredItems = useMemo(() => {
+    if (warehouse === 'all') return ITEMS;
+    return ITEMS.filter(item => item.warehouse === warehouse);
+  }, [warehouse]);
+
+  const lowStockCount = useMemo(
+    () => filteredItems.filter(item => isLowStock(item.qty, item.minStock)).length,
+    [filteredItems]
   );
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <Header
         title="Tồn kho"
+        onBack={() => navigation?.goBack?.()}
         rightActions={
           <>
             <TouchableOpacity style={styles.iconBtn}>
-              <Ionicons name="filter" size={20} color={Colors.text} />
+              <Ionicons name="filter-outline" size={20} color={colors.text} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconBtn}>
-              <Ionicons name="refresh" size={20} color={Colors.text} />
+              <Ionicons name="qr-code-outline" size={20} color={Colors.primary} />
             </TouchableOpacity>
           </>
         }
       />
 
-      <FlatList
-        data={filtered}
-        keyExtractor={i => i.id}
-        ListHeaderComponent={
-          <>
-            {/* Stat cards */}
-            <View style={styles.statsRow}>
-              <StatCard label="Giá trị kho" value="248.000.000 đ" style={{ flex: 1 }} />
-              <StatCard label="Cần nhập thêm" value="3 SP" color={Colors.danger} style={{ flex: 1 }} />
-            </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <View style={styles.statsRow}>
+          <View style={styles.primaryStatCard}>
+            <Text style={[styles.primaryStatLabel, { color: 'rgba(255,255,255,0.9)' }]}>Tổng giá trị</Text>
+            <Text style={[styles.primaryStatValue, { color: '#fff' }]}>248M đ</Text>
+            <Text style={[styles.primaryStatSub, { color: 'rgba(255,255,255,0.85)' }]}>1,284 SKU</Text>
+          </View>
 
-            {/* Branch tabs */}
-            <View style={styles.branchTabs}>
-              {BRANCHES.map(b => (
-                <TouchableOpacity
-                  key={b.key}
-                  style={[styles.branchTab, branch === b.key && styles.branchTabActive]}
-                  onPress={() => setBranch(b.key)}
-                >
-                  <Text style={[styles.branchTabText, branch === b.key && styles.branchTabTextActive]}>
-                    {b.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+          <View style={[styles.secondaryStatCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.secondaryStatLabel, { color: colors.textSecondary }]}>Cần nhập</Text>
+            <Text style={styles.secondaryStatValue}>{lowStockCount}</Text>
+            <Text style={[styles.secondaryStatSub, { color: colors.textSecondary }]}>SP sắp hết</Text>
+          </View>
+        </View>
 
-            {/* Quick actions */}
-            <View style={styles.quickGrid}>
-              {QUICK_ACTIONS.map(a => (
-                <TouchableOpacity
-                  key={a.key}
-                  style={styles.quickBtn}
-                  onPress={() => navigation?.navigate('InventoryEdit')}
-                >
-                  <View style={[styles.quickIcon, { backgroundColor: a.color + '1a' }]}>
-                    <Ionicons name={a.icon} size={22} color={a.color} />
-                  </View>
-                  <Text style={styles.quickLabel}>{a.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.warehouseTabs}
+        >
+          {WAREHOUSES.map(tab => {
+            const active = warehouse === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[
+                  styles.warehouseChip,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                  active && styles.warehouseChipActive,
+                ]}
+                onPress={() => setWarehouse(tab.key)}
+              >
+                <Text style={[styles.warehouseText, { color: colors.textSecondary }, active && styles.warehouseTextActive]}>{tab.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
-            {/* Search */}
-            <SearchBar value={search} onChangeText={setSearch} placeholder="Tìm sản phẩm, SKU..." />
-
-            <Text style={styles.sectionLabel}>{filtered.length} sản phẩm</Text>
-          </>
-        }
-        renderItem={({ item }) => {
-          const isLow = item.qty > 0 && item.qty <= item.minStock;
-          const isOut = item.qty === 0;
-          const color = stockColor(item.qty, item.minStock);
-          return (
-            <View style={styles.itemCard}>
-              <View style={styles.itemLeft}>
-                <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-                <Text style={styles.itemSku}>{item.sku}</Text>
-                <Text style={styles.itemCost}>{item.cost.toLocaleString('vi-VN')} đ/{item.unit}</Text>
+        <View style={styles.quickGrid}>
+          {QUICK_ACTIONS.map(action => (
+            <TouchableOpacity
+              key={action.key}
+              style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => navigation?.navigate?.('InventoryEdit')}
+            >
+              <View
+                style={[
+                  styles.quickIcon,
+                  {
+                    backgroundColor: action.iconBg,
+                    borderColor: action.iconBorder,
+                  },
+                ]}
+              >
+                <Ionicons name={action.icon} size={16} color={action.iconColor} />
               </View>
-              <View style={styles.itemRight}>
-                <Text style={[styles.itemQty, { color }]}>{item.qty} {item.unit}</Text>
-                {(isLow || isOut) && (
-                  <View style={[styles.warnBadge, { backgroundColor: color + '1a' }]}>
-                    <Text style={[styles.warnText, { color }]}>
-                      {isOut ? '⚠ Hết hàng' : '⚠ Sắp hết'}
-                    </Text>
+
+              <View>
+                <Text style={[styles.quickTitle, { color: colors.text }]}>{action.title}</Text>
+                <Text style={[styles.quickSub, { color: colors.textSecondary }]}>{action.subtitle}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={styles.listHeader}>
+          <Text style={[styles.listTitle, { color: colors.text }]}>Danh sách tồn</Text>
+          <Text style={[styles.listSort, { color: colors.textSecondary }]}>Sắp xếp: A-Z ↓</Text>
+        </View>
+
+        <View style={[styles.stockCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {filteredItems.map((item, index) => {
+            const low = isLowStock(item.qty, item.minStock);
+
+            return (
+              <View key={item.id}>
+                {index > 0 && (
+                  <View style={styles.stockSeparator}>
+                    {Array.from({ length: 28 }).map((_, dashIdx) => (
+                      <View key={`${item.id}-dash-${dashIdx}`} style={[styles.stockSeparatorDash, { backgroundColor: colors.border }]} />
+                    ))}
                   </View>
                 )}
-                <TouchableOpacity
-                  style={styles.editBtn}
-                  onPress={() => navigation?.navigate('InventoryEdit')}
+                <View
+                  style={[
+                    styles.stockRow,
+                    low && styles.stockRowLow,
+                    { backgroundColor: low ? colors.dangerLight : colors.card },
+                  ]}
                 >
-                  <Ionicons name="pencil" size={14} color={Colors.primary} />
-                  <Text style={styles.editBtnText}>Điều chỉnh</Text>
-                </TouchableOpacity>
+                  <View style={[styles.thumb, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                    <Ionicons name="cube-outline" size={18} color={colors.textSecondary} />
+                  </View>
+
+                  <View style={styles.stockInfo}>
+                    <Text style={[styles.stockName, { color: colors.text }]} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={[styles.stockMeta, { color: colors.textSecondary }]} numberOfLines={1}>
+                      {item.sku} · {item.location}
+                    </Text>
+                  </View>
+
+                  <View style={styles.stockQtyWrap}>
+                    <Text style={[styles.stockQty, { color: colors.text }, low && styles.stockQtyLow]}>
+                      {item.qty} <Text style={[styles.stockUnit, { color: colors.textSecondary }]}>{item.unit}</Text>
+                    </Text>
+                    <Text style={[styles.stockMin, { color: colors.textSecondary }]}>min {item.minStock}</Text>
+                  </View>
+                </View>
               </View>
-            </View>
-          );
-        }}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      />
+            );
+          })}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -158,53 +279,103 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+  content: {
+    paddingBottom: 20,
+  },
   iconBtn: {
-    padding: 6,
+    padding: 4,
   },
   statsRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,
   },
-  branchTabs: {
-    flexDirection: 'row',
-    marginHorizontal: Spacing.lg,
-    backgroundColor: Colors.card,
-    borderRadius: Radius.md,
-    padding: 3,
-    ...Shadow.sm,
-    marginBottom: Spacing.sm,
-  },
-  branchTab: {
+  primaryStatCard: {
     flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: Radius.sm,
-  },
-  branchTabActive: {
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
     backgroundColor: Colors.primary,
+    ...Shadow.sm,
   },
-  branchTabText: {
+  primaryStatLabel: {
+    ...Typography.caption,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  primaryStatValue: {
+    ...Typography.h2,
+    fontSize: 28,
+    color: '#fff',
+    marginTop: 2,
+  },
+  primaryStatSub: {
+    ...Typography.caption,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  secondaryStatCard: {
+    flex: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    backgroundColor: Colors.card,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    ...Shadow.sm,
+  },
+  secondaryStatLabel: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+  },
+  secondaryStatValue: {
+    ...Typography.h2,
+    fontSize: 28,
+    color: '#c97a7a',
+    marginTop: 2,
+  },
+  secondaryStatSub: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+  },
+  warehouseTabs: {
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  warehouseChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+  },
+  warehouseChipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+  },
+  warehouseText: {
     ...Typography.captionMd,
     color: Colors.textSecondary,
-    textAlign: 'center',
   },
-  branchTabTextActive: {
-    color: '#fff',
+  warehouseTextActive: {
+    color: Colors.primary,
+    fontWeight: '700',
   },
   quickGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: Spacing.lg,
     gap: Spacing.sm,
-    marginBottom: Spacing.sm,
+    paddingBottom: Spacing.sm,
   },
   quickBtn: {
-    width: '48%',
+    width: '48.7%',
     backgroundColor: Colors.card,
     borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
     padding: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
@@ -212,83 +383,124 @@ const styles = StyleSheet.create({
     ...Shadow.sm,
   },
   quickIcon: {
-    width: 38,
-    height: 38,
+    width: 32,
+    height: 32,
     borderRadius: Radius.sm,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quickLabel: {
-    ...Typography.bodyMd,
-    color: Colors.text,
-  },
-  sectionLabel: {
+  quickTitle: {
     ...Typography.captionMd,
-    color: Colors.textSecondary,
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xs,
-  },
-  listContent: {
-    paddingBottom: 32,
-  },
-  itemCard: {
-    backgroundColor: Colors.card,
-    marginHorizontal: Spacing.lg,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    ...Shadow.sm,
-  },
-  itemLeft: {
-    flex: 1,
-    marginRight: Spacing.md,
-  },
-  itemName: {
-    ...Typography.bodyMd,
     color: Colors.text,
-    marginBottom: 2,
+    fontWeight: '700',
   },
-  itemSku: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-    marginBottom: 4,
-  },
-  itemCost: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-  },
-  itemRight: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  itemQty: {
-    ...Typography.h4,
-  },
-  warnBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: Radius.full,
-  },
-  warnText: {
+  quickSub: {
     ...Typography.label,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+    marginTop: 2,
+    letterSpacing: 0,
   },
-  editBtn: {
+  listHeader: {
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.xs,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: Colors.primaryLight,
-    borderRadius: Radius.full,
-    marginTop: 2,
+    justifyContent: 'space-between',
   },
-  editBtnText: {
+  listTitle: {
+    ...Typography.bodyMd,
+    color: Colors.text,
+    fontWeight: '700',
+  },
+  listSort: {
     ...Typography.label,
-    color: Colors.primary,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+    letterSpacing: 0,
   },
-  separator: {
-    height: Spacing.sm,
+  stockCard: {
+    marginHorizontal: Spacing.lg,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+    ...Shadow.sm,
+  },
+  stockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+  },
+  stockSeparator: {
+    marginHorizontal: Spacing.md,
+    paddingVertical: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  stockSeparatorDash: {
+    width: 6,
+    height: 1.5,
+    borderRadius: Radius.full,
+    backgroundColor: '#d2cec4',
+  },
+  stockRowLow: {
+    backgroundColor: '#fcf2ee',
+  },
+  thumb: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.sm,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: '#f8f7f3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stockInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  stockName: {
+    ...Typography.bodySm,
+    color: Colors.text,
+    fontWeight: '700',
+  },
+  stockMeta: {
+    ...Typography.label,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+    marginTop: 2,
+    letterSpacing: 0,
+  },
+  stockQtyWrap: {
+    alignItems: 'flex-end',
+    minWidth: 64,
+  },
+  stockQty: {
+    ...Typography.h4,
+    color: Colors.text,
+    fontWeight: '800',
+  },
+  stockQtyLow: {
+    color: '#c97a7a',
+  },
+  stockUnit: {
+    ...Typography.label,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+    letterSpacing: 0,
+  },
+  stockMin: {
+    ...Typography.label,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+    letterSpacing: 0,
+    marginTop: 1,
   },
 });

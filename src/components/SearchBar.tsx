@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
-import { Colors, Spacing, Radius } from '../theme';
+import { Colors, Spacing, Radius, useThemeMode } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
 interface SearchBarProps {
@@ -11,21 +11,23 @@ interface SearchBarProps {
 }
 
 export function SearchBar({ value, onChangeText, placeholder = 'Tìm kiếm...', onQrPress }: SearchBarProps) {
+  const { colors } = useThemeMode();
+
   return (
     <View style={styles.container}>
-      <View style={styles.inputWrap}>
-        <Ionicons name="search" size={16} color={Colors.textSecondary} style={styles.icon} />
+      <View style={[styles.inputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Ionicons name="search" size={16} color={colors.textSecondary} style={styles.icon} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, { color: colors.text }]}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={Colors.textSecondary}
+          placeholderTextColor={colors.textSecondary}
         />
       </View>
       {onQrPress && (
-        <TouchableOpacity onPress={onQrPress} style={styles.qrBtn}>
-          <Ionicons name="qr-code" size={20} color={Colors.primary} />
+        <TouchableOpacity onPress={onQrPress} style={[styles.qrBtn, { backgroundColor: colors.primaryLight }]}>
+          <Ionicons name="qr-code" size={20} color={colors.primary} />
         </TouchableOpacity>
       )}
     </View>

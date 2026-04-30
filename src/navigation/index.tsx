@@ -1,17 +1,29 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { BottomTabBarProps, createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { NavigatorScreenParams } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography } from '../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLanguage, type TranslationKey } from '../i18n';
+import { Colors, Typography, useThemeMode } from '../theme';
+import { MessagesProvider, useMessages } from '../screens/messages/MessagesContext';
 
 // ─── Param Lists ────────────────────────────────────────────────────────────
 
 export type RootTabParamList = {
   Home: undefined;
-  Manage: undefined;
+  Manage: NavigatorScreenParams<ManageStackParamList> | undefined;
+  Scan: undefined;
   Messages: undefined;
   Settings: undefined;
+};
+export type RootStackParamList = {
+  Login: undefined;
+  Register: undefined;
+  ForgotPassword: undefined;
+  Tabs: undefined;
+  MessagesDetail: { threadId: number };
 };
 
 export type ManageStackParamList = {
@@ -24,7 +36,7 @@ export type ManageStackParamList = {
   OrdersList: undefined;
   OrderDetail: { id: number };
   InventoryMain: undefined;
-  InventoryEdit: undefined;
+  InventoryEdit: { mode?: 'import' | 'export' | 'transfer' | 'audit'; scanItems?: ScanActionItem[] } | undefined;
   StaffList: undefined;
   StaffEdit: { id?: number };
   SuppliersList: undefined;
@@ -38,19 +50,40 @@ export type ManageStackParamList = {
   TaxMain: undefined;
   EcommerceMain: undefined;
   QrScan: undefined;
-  PosScreen: undefined;
+  PosScreen: { scanItems?: ScanActionItem[] } | undefined;
+};
+
+export type ScanActionItem = {
+  code: string;
+  name: string;
+  sku?: string;
+  qty: number;
+  source: 'barcode' | 'qr' | 'image';
 };
 
 export type HomeStackParamList = { HomeMain: undefined };
 export type MessagesStackParamList = { MessagesMain: undefined };
-export type SettingsStackParamList = { SettingsMain: undefined };
+export type SettingsStackParamList = {
+  SettingsMain: undefined;
+  UpgradeAccount: undefined;
+  ProfileSettings: undefined;
+  ChangePassword: undefined;
+  DocsWebView: undefined;
+  Feedback: undefined;
+};
 
 // ─── Screen Imports ─────────────────────────────────────────────────────────
 
 import { HomeScreen } from '../screens/home/HomeScreen';
 import { ManageScreen } from '../screens/manage/ManageScreen';
 import { MessagesScreen } from '../screens/messages/MessagesScreen';
+import { MessagesDetailScreen } from '../screens/messages/MessagesDetailScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
+import { UpgradeAccountScreen } from '../screens/settings/UpgradeAccountScreen';
+import { ProfileSettingsScreen } from '../screens/settings/ProfileSettingsScreen';
+import { ChangePasswordScreen } from '../screens/settings/ChangePasswordScreen';
+import { DocsWebViewScreen } from '../screens/settings/DocsWebViewScreen';
+import { FeedbackScreen } from '../screens/settings/FeedbackScreen';
 import { ProductsListScreen } from '../screens/products/ProductsListScreen';
 import { ProductEditScreen } from '../screens/products/ProductEditScreen';
 import { CustomersListScreen } from '../screens/customers/CustomersListScreen';
@@ -73,6 +106,9 @@ import { TaxScreen } from '../screens/tax/TaxScreen';
 import { EcommerceScreen } from '../screens/ecommerce/EcommerceScreen';
 import { QrScanScreen } from '../screens/qr/QrScanScreen';
 import { PosScreen } from '../screens/pos/PosScreen';
+import { LoginScreen } from '../screens/auth/LoginScreen';
+import { RegisterScreen } from '../screens/auth/RegisterScreen';
+import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
 
 // ─── Stack Navigators ────────────────────────────────────────────────────────
 
@@ -131,6 +167,11 @@ function SettingsStackNavigator() {
   return (
     <SettingsStack.Navigator screenOptions={{ headerShown: false }}>
       <SettingsStack.Screen name="SettingsMain" component={SettingsScreen} />
+      <SettingsStack.Screen name="UpgradeAccount" component={UpgradeAccountScreen} />
+      <SettingsStack.Screen name="ProfileSettings" component={ProfileSettingsScreen} />
+      <SettingsStack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+      <SettingsStack.Screen name="DocsWebView" component={DocsWebViewScreen} />
+      <SettingsStack.Screen name="Feedback" component={FeedbackScreen} />
     </SettingsStack.Navigator>
   );
 }
@@ -138,54 +179,273 @@ function SettingsStackNavigator() {
 // ─── Tab Navigator ────────────────────────────────────────────────────────────
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
+const RootStack = createNativeStackNavigator<RootStackParamList>();
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 const TAB_ICONS: Record<keyof RootTabParamList, { active: IoniconsName; inactive: IoniconsName }> = {
   Home: { active: 'home', inactive: 'home-outline' },
   Manage: { active: 'grid', inactive: 'grid-outline' },
+  Scan: { active: 'barcode', inactive: 'barcode-outline' },
   Messages: { active: 'chatbubbles', inactive: 'chatbubbles-outline' },
   Settings: { active: 'settings', inactive: 'settings-outline' },
 };
 
-const TAB_LABELS: Record<keyof RootTabParamList, string> = {
-  Home: 'Trang chủ',
-  Manage: 'Quản lý',
-  Messages: 'Tin nhắn',
-  Settings: 'Cài đặt',
+const TAB_LABEL_KEYS: Record<keyof RootTabParamList, TranslationKey> = {
+  Home: 'tabs.home',
+  Manage: 'tabs.manage',
+  Scan: 'tabs.scan',
+  Messages: 'tabs.messages',
+  Settings: 'tabs.settings',
 };
 
-export function RootNavigator() {
+function SketchVariantTwoTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const { unreadSenderCount } = useMessages();
+  const insets = useSafeAreaInsets();
+  const { colors, isDark } = useThemeMode();
+  const { t } = useLanguage();
+  const visibleRoutes = state.routes.filter((route) => route.name !== 'Scan');
+  const leftRoutes = visibleRoutes.slice(0, 2);
+  const rightRoutes = visibleRoutes.slice(2);
+  const activeTabName = state.routes[state.index]?.name;
+  const manageRoute = state.routes.find((route) => route.name === 'Manage');
+  const manageNestedState = manageRoute?.state as { key: string; index: number; routes: Array<{ name: string }> } | undefined;
+  const manageActiveNestedRoute = manageNestedState?.routes?.[manageNestedState.index]?.name;
+  const settingsRoute = state.routes.find((route) => route.name === 'Settings');
+  const settingsNestedState = settingsRoute?.state as { key: string; index: number; routes: Array<{ name: string }> } | undefined;
+  const shouldHideTabBar = Boolean(settingsNestedState && settingsNestedState.index > 0);
+
+  if (shouldHideTabBar) {
+    return null;
+  }
+
+  const isScanActive = activeTabName === 'Scan' || (activeTabName === 'Manage' && manageActiveNestedRoute === 'QrScan');
+  const tabBackground = isScanActive && !isDark ? '#111' : colors.card;
+  const tabBorderColor = isScanActive && !isDark ? 'rgba(255,255,255,0.08)' : colors.border;
+  const inactiveTabColor = isScanActive && !isDark ? 'rgba(255,255,255,0.62)' : colors.textSecondary;
+
+  const renderTabItem = (route: (typeof state.routes)[number]) => {
+    const routeName = route.name as keyof RootTabParamList;
+    const isCurrentTab = state.routes[state.index].key === route.key;
+    const isFocused = isCurrentTab && !(routeName === 'Manage' && isScanActive);
+    const color = isFocused ? colors.primary : inactiveTabColor;
+    const icons = TAB_ICONS[routeName];
+    const labelStyle = [styles.tabLabel, { color }];
+    const showBadge = routeName === 'Messages' && unreadSenderCount > 0;
+    const badgeText = unreadSenderCount > 99 ? '99+' : String(unreadSenderCount);
+    const spacingStyle =
+      routeName === 'Manage'
+        ? styles.tabItemNearCenterLeft
+        : routeName === 'Messages'
+          ? styles.tabItemNearCenterRight
+          : undefined;
+
+    const onPress = () => {
+      const event = navigation.emit({
+        type: 'tabPress',
+        target: route.key,
+        canPreventDefault: true,
+      });
+
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      if (route.name === 'Manage') {
+        if (activeTabName === 'Manage' && manageActiveNestedRoute === 'QrScan') {
+          navigation.navigate('Manage', { screen: 'ManageMain' });
+        } else {
+          navigation.navigate('Manage');
+        }
+        return;
+      }
+
+      if (!isFocused) {
+        navigation.navigate(route.name, route.params);
+      }
+    };
+
+    const onLongPress = () => {
+      navigation.emit({
+        type: 'tabLongPress',
+        target: route.key,
+      });
+    };
+
+    return (
+      <Pressable
+        key={route.key}
+        accessibilityRole="button"
+        accessibilityState={isFocused ? { selected: true } : {}}
+        accessibilityLabel={descriptors[route.key].options.tabBarAccessibilityLabel}
+        testID={descriptors[route.key].options.tabBarButtonTestID}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        style={[styles.tabItem, spacingStyle]}
+      >
+        <View style={styles.tabIconWrap}>
+          <Ionicons name={icons.inactive} size={22} color={color} />
+          {showBadge && (
+            <View style={[styles.tabUnreadBadge, { borderColor: tabBackground }]}>
+              <Text style={styles.tabUnreadBadgeText}>{badgeText}</Text>
+            </View>
+          )}
+        </View>
+        <Text style={labelStyle}>{t(TAB_LABEL_KEYS[routeName])}</Text>
+      </Pressable>
+    );
+  };
+
+  return (
+    <View
+      style={[
+        styles.tabBarContainer,
+        {
+          backgroundColor: tabBackground,
+          borderTopColor: tabBorderColor,
+          paddingBottom: Math.max(insets.bottom, 10),
+        },
+      ]}
+    >
+      <View style={styles.tabBarRow}>
+        <View style={styles.tabGroup}>{leftRoutes.map(renderTabItem)}</View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('tabs.scanQr')}
+          onPress={() => navigation.navigate('Scan')}
+          style={styles.scanTabItem}
+        >
+          <Ionicons
+            name="barcode-outline"
+            size={45}
+            color={isScanActive ? colors.primary : inactiveTabColor}
+          />
+        </Pressable>
+        <View style={styles.tabGroup}>{rightRoutes.map(renderTabItem)}</View>
+      </View>
+    </View>
+  );
+}
+
+function AppTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
+      tabBar={(props) => <SketchVariantTwoTabBar {...props} />}
+      screenOptions={{
         headerShown: false,
-        tabBarIcon: ({ focused, color, size }) => {
-          const icons = TAB_ICONS[route.name as keyof RootTabParamList];
-          return <Ionicons name={focused ? icons.active : icons.inactive} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textSecondary,
-        tabBarLabel: TAB_LABELS[route.name as keyof RootTabParamList],
-        tabBarLabelStyle: { ...Typography.label, marginBottom: 2 },
-        tabBarStyle: {
-          backgroundColor: Colors.card,
-          borderTopColor: Colors.border,
-          borderTopWidth: 1,
-          height: 60,
-          paddingTop: 6,
-        },
-      })}
+      }}
     >
       <Tab.Screen name="Home" component={HomeStackNavigator} />
       <Tab.Screen name="Manage" component={ManageStackNavigator} />
+      <Tab.Screen name="Scan" component={QrScanScreen} />
       <Tab.Screen name="Messages" component={MessagesStackNavigator} />
       <Tab.Screen name="Settings" component={SettingsStackNavigator} />
     </Tab.Navigator>
   );
 }
 
+export function RootNavigator() {
+  return (
+    <MessagesProvider>
+      <RootStack.Navigator initialRouteName="Login" screenOptions={{ headerShown: false }}>
+        <RootStack.Screen name="Login" component={LoginScreen} />
+        <RootStack.Screen name="Register" component={RegisterScreen} />
+        <RootStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+        <RootStack.Screen name="Tabs" component={AppTabs} />
+        <RootStack.Screen
+          name="MessagesDetail"
+          component={MessagesDetailScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+      </RootStack.Navigator>
+    </MessagesProvider>
+  );
+}
+
 const styles = StyleSheet.create({
-  placeholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background },
-  placeholderText: { ...Typography.h3, color: Colors.textSecondary },
+  tabBarContainer: {
+    backgroundColor: Colors.card,
+    borderTopColor: Colors.border,
+    borderTopWidth: 1,
+    paddingTop: 8,
+    paddingHorizontal: 6,
+  },
+  tabBarContainerDark: {
+    backgroundColor: '#111',
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  tabBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 60,
+  },
+  tabGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  tabItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    minHeight: 48,
+  },
+  tabIconWrap: {
+    position: 'relative',
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabUnreadBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -12,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: Colors.danger,
+    borderWidth: 1.5,
+    borderColor: Colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabUnreadBadgeOnDark: {
+    borderColor: '#111',
+  },
+  tabUnreadBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 11,
+  },
+  tabItemNearCenterLeft: {
+    marginRight: 10,
+  },
+  tabItemNearCenterRight: {
+    marginLeft: 10,
+  },
+  tabLabel: {
+    ...Typography.label,
+    marginTop: 1,
+    color: Colors.textSecondary,
+    fontSize: 10.5,
+    fontWeight: '500',
+  },
+  tabLabelOnDark: {
+    color: 'rgba(255,255,255,0.62)',
+  },
+  tabLabelActive: {
+    color: Colors.primary,
+  },
+  scanTabItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 10,
+    marginBottom: 10,
+  },
 });

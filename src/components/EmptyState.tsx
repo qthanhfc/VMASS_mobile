@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Colors, Typography, Spacing } from '../theme';
+import { Colors, Typography, Spacing, useThemeMode } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
 interface EmptyStateProps {
@@ -10,11 +10,13 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ icon = 'file-tray-outline', title, description }: EmptyStateProps) {
+  const { colors } = useThemeMode();
+
   return (
     <View style={styles.container}>
-      <Ionicons name={icon} size={48} color={Colors.textSecondary} />
-      <Text style={styles.title}>{title}</Text>
-      {description && <Text style={styles.desc}>{description}</Text>}
+      <Ionicons name={icon} size={48} color={colors.textSecondary} />
+      <Text style={[styles.title, { color: colors.textSecondary }]}>{title}</Text>
+      {description && <Text style={[styles.desc, { color: colors.textSecondary }]}>{description}</Text>}
     </View>
   );
 }

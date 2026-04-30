@@ -1,0 +1,9 @@
+
+> mobile@1.0.0 start
+> expo start --port 8081
+
+env: load .env
+env: export EXPO_PUBLIC_API_URL EXPO_PUBLIC_VMASS_API_URL EXPO_PUBLIC_VMASS_STORE_DOMAIN
+Starting project at D:\VMASS\VMASS_mobile
+› Port 8081 is being used by another process
+› Skipping dev server

@@ -2,17 +2,81 @@ export interface Product {
   id: number;
   name: string;
   sku: string;
+  barcode?: string;
   price: number;
   cost: number;
   stock: number;
   minStock: number;
+  categoryId?: number;
   category: string;
   image?: string;
+  images?: string[];
+  priceSale?: number;
+  activeSale?: boolean;
+  bestter?: boolean;
+  variantCount?: number;
+  variants?: ProductVariant[];
+  sizeOptions?: ProductVariantOption[];
+  colorOptions?: ProductVariantOption[];
+  materialOptions?: ProductVariantOption[];
+  toppings?: ProductVariantOption[];
+  iceOptions?: ProductVariantOption[];
+  sugarOptions?: ProductVariantOption[];
+  sizeTitle?: string;
+  colorTitle?: string;
+  materialTitle?: string;
+  toppingTitle?: string;
+  iceTitle?: string;
+  sugarTitle?: string;
   status: 'active' | 'inactive';
   isOnline: boolean;
   allowOversell: boolean;
   vatApplied: boolean;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ProductVariantOption {
+  id?: number | string;
+  name?: string;
+  label?: string;
+  value?: string;
+  promo_price?: string | number | null;
+}
+
+export interface ProductVariantAttributes {
+  size?: ProductVariantOption;
+  color?: ProductVariantOption;
+  material?: ProductVariantOption;
+  [key: string]: ProductVariantOption | undefined;
+}
+
+export interface ProductVariant {
+  id: number;
+  productId?: number;
+  sku?: string;
+  price: number;
+  costPrice: number;
+  promoPrice?: number;
+  quantity: number;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  attributes: ProductVariantAttributes;
+}
+
+export interface ProductStock {
+  id?: number;
+  name: string;
+  unit?: string;
+  count: number;
+  averagePrice?: number;
+  latestPrice?: number;
+}
+
+export interface ProductMakeItem {
+  productId: number;
+  count: number;
+  stock?: ProductStock;
 }
 
 export interface Customer {
@@ -145,13 +209,35 @@ export interface BookkeepingEntry {
 export interface Message {
   id: number;
   channel: 'facebook' | 'zalo' | 'instagram' | 'sms' | 'internal' | 'system';
+  customerId?: number;
   senderName: string;
   preview: string;
   timestamp: string;
   unread: number;
   avatar?: string;
   isPinned?: boolean;
+  replyStatus?: 'unreplied' | 'replied';
+  customerSegment?: CustomerSegment;
+  customerTags?: CustomerTag[];
 }
+
+export type CustomerSegment =
+  | 'new'
+  | 'returning'
+  | 'purchased'
+  | 'callback'
+  | 'potential'
+  | 'unclear_need'
+  | 'vip'
+  | 'needs_followup'
+  | 'complaint'
+  | 'internal';
+export type CustomerTag =
+  | 'price_sensitive'
+  | 'easy_to_close'
+  | 'high_value'
+  | 'needs_consult'
+  | 'refund_risk';
 
 export interface DashboardStats {
   revenueToday: number;

@@ -24,6 +24,8 @@ app.use('/api/promotions', require('./routes/promotions'));
 app.use('/api/bookkeeping', require('./routes/bookkeeping'));
 app.use('/api/tax', require('./routes/tax'));
 app.use('/api/messages', require('./routes/messages'));
+app.use('/api/feedback', require('./routes/feedback'));
+app.use('/feedback', require('./routes/feedback'));
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', version: '1.0.0' }));
 

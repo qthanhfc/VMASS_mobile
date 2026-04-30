@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
-import { Colors, Radius, Shadow } from '../theme';
+import { Colors, Radius, Shadow, useThemeMode } from '../theme';
 
 interface CardProps {
   children: React.ReactNode;
@@ -10,8 +10,10 @@ interface CardProps {
 }
 
 export function Card({ children, style, accent, padding = 16 }: CardProps) {
+  const { colors } = useThemeMode();
+
   return (
-    <View style={[styles.card, accent && styles.accent, { padding }, style]}>
+    <View style={[styles.card, { backgroundColor: accent ? colors.primary : colors.card, padding }, style]}>
       {children}
     </View>
   );

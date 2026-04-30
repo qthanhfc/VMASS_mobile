@@ -23,6 +23,18 @@ export const products = {
   create: (data: any) => api.post('/products', data),
   update: (id: number, data: any) => api.put(`/products/${id}`, data),
   delete: (id: number) => api.delete(`/products/${id}`),
+  imageSearch: (imageUri: string, fileName = 'product-image.jpg') => {
+    const formData = new FormData();
+    formData.append('image', {
+      uri: imageUri,
+      name: fileName,
+      type: 'image/jpeg',
+    } as any);
+
+    return api.post('/products/image-search', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };
 
 export const customers = {

@@ -5,12 +5,15 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  Image,
+  ImageSourcePropType,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radius, Shadow } from '../../theme';
+import { useLanguage, type TranslationKey } from '../../i18n';
+import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 import { Card, SearchBar, SectionHeader } from '../../components';
 import { ManageStackParamList } from '../../navigation';
 
@@ -20,58 +23,65 @@ type NavProp = NativeStackNavigationProp<ManageStackParamList, 'ManageMain'>;
 
 interface ManageSection {
   key: keyof ManageStackParamList;
-  label: string;
+  labelKey: TranslationKey;
   icon: React.ComponentProps<typeof Ionicons>['name'];
-  badge?: number;
+  statKey: TranslationKey;
   color?: string;
 }
 
 interface Platform {
   key: string;
   label: string;
-  emoji: string;
-  color: string;
+  logo: ImageSourcePropType;
   orders: number;
-  status: 'online' | 'offline' | 'syncing';
+  pending: number;
+  connected: boolean;
 }
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
 const SECTIONS: ManageSection[] = [
-  { key: 'ProductsList', label: 'Sản phẩm', icon: 'shirt-outline', badge: 142, color: '#7c3aed' },
-  { key: 'CustomersList', label: 'Khách hàng', icon: 'people-outline', badge: 38, color: '#0891b2' },
-  { key: 'SuppliersList', label: 'Nhà cung cấp', icon: 'business-outline', color: '#16a34a' },
-  { key: 'InventoryMain', label: 'Tồn kho', icon: 'cube-outline', badge: 3, color: Colors.warning },
-  { key: 'OrdersList', label: 'Đơn hàng', icon: 'receipt-outline', badge: 12, color: Colors.primary },
-  { key: 'ReturnsList', label: 'Trả hàng', icon: 'return-down-back-outline', color: Colors.danger },
-  { key: 'StaffList', label: 'Nhân viên', icon: 'id-card-outline', color: '#db2777' },
-  { key: 'PromotionsList', label: 'Khuyến mãi', icon: 'pricetag-outline', badge: 2, color: Colors.accent },
-  { key: 'BookkeepingMain', label: 'Hóa đơn/Công nợ', icon: 'document-text-outline', color: '#0891b2' },
-  { key: 'BookkeepingMain', label: 'Kế toán', icon: 'calculator-outline', color: Colors.success },
+  { key: 'OrdersList', labelKey: 'manage.section.orders', icon: 'receipt-outline', statKey: 'manage.section.ordersStat', color: Colors.primary },
+  { key: 'ProductsList', labelKey: 'manage.section.products', icon: 'shirt-outline', statKey: 'manage.section.productsStat', color: '#7c3aed' },
+  { key: 'CustomersList', labelKey: 'manage.section.customers', icon: 'people-outline', statKey: 'manage.section.customersStat', color: '#0891b2' },
+  { key: 'InventoryMain', labelKey: 'manage.section.inventory', icon: 'cube-outline', statKey: 'manage.section.inventoryStat', color: Colors.warning },
+  { key: 'SuppliersList', labelKey: 'manage.section.suppliers', icon: 'business-outline', statKey: 'manage.section.suppliersStat', color: '#16a34a' },
+  { key: 'ReturnsList', labelKey: 'manage.section.returns', icon: 'return-down-back-outline', statKey: 'manage.section.returnsStat', color: Colors.danger },
+  { key: 'PromotionsList', labelKey: 'manage.section.promotions', icon: 'pricetag-outline', statKey: 'manage.section.promotionsStat', color: Colors.accent },
+  { key: 'StaffList', labelKey: 'manage.section.staff', icon: 'id-card-outline', statKey: 'manage.section.staffStat', color: '#db2777' },
+  { key: 'BookkeepingMain', labelKey: 'manage.section.debtInvoice', icon: 'document-text-outline', statKey: 'manage.section.debtInvoiceStat', color: '#0891b2' },
+  { key: 'BookkeepingMain', labelKey: 'manage.section.accounting', icon: 'calculator-outline', statKey: 'manage.section.accountingStat', color: Colors.success },
 ];
 
 const PLATFORMS: Platform[] = [
-  { key: 'shopee', label: 'Shopee', emoji: '🛒', color: '#ee4d2d', orders: 24, status: 'online' },
-  { key: 'lazada', label: 'Lazada', emoji: '🔵', color: '#0f1457', orders: 8, status: 'online' },
-  { key: 'tiktok', label: 'TikTok', emoji: '🎵', color: '#010101', orders: 15, status: 'syncing' },
-  { key: 'tiki', label: 'Tiki', emoji: '🔷', color: '#1a94ff', orders: 3, status: 'offline' },
+  { key: 'shopee', label: 'Shopee', logo: require('../../../assets/ecommerce/shopee.png'), orders: 24, pending: 3, connected: true },
+  { key: 'lazada', label: 'Lazada', logo: require('../../../assets/ecommerce/lazada.png'), orders: 8, pending: 1, connected: true },
+  { key: 'tiktok', label: 'TikTok Shop', logo: require('../../../assets/ecommerce/tiktok.png'), orders: 15, pending: 4, connected: true },
+  { key: 'tiki', label: 'Tiki', logo: require('../../../assets/ecommerce/tiki.png'), orders: 0, pending: 0, connected: false },
+  { key: 'sendo', label: 'Sendo', logo: require('../../../assets/ecommerce/sendo.png'), orders: 0, pending: 0, connected: false },
+  { key: 'facebook', label: 'Facebook Shop', logo: require('../../../assets/ecommerce/facebook.png'), orders: 5, pending: 0, connected: true },
 ];
 
 const QUICK_ACTIONS = [
-  { key: 'OrdersList' as keyof ManageStackParamList, label: 'Tạo đơn', icon: 'add-circle-outline' as const },
-  { key: 'InventoryMain' as keyof ManageStackParamList, label: 'Nhập hàng', icon: 'download-outline' as const },
-  { key: 'PosScreen' as keyof ManageStackParamList, label: 'Bán POS', icon: 'storefront-outline' as const },
-  { key: 'BookkeepingMain' as keyof ManageStackParamList, label: 'Báo cáo', icon: 'bar-chart-outline' as const },
-  { key: 'CustomersList' as keyof ManageStackParamList, label: 'Thêm KH', icon: 'person-add-outline' as const },
+  { key: 'OrdersList' as keyof ManageStackParamList, labelKey: 'manage.quick.createOrder' as TranslationKey, icon: 'add-circle-outline' as const },
+  { key: 'InventoryMain' as keyof ManageStackParamList, labelKey: 'manage.quick.importStock' as TranslationKey, icon: 'download-outline' as const },
+  { key: 'PosScreen' as keyof ManageStackParamList, labelKey: 'manage.quick.posSale' as TranslationKey, icon: 'storefront-outline' as const },
+  { key: 'BookkeepingMain' as keyof ManageStackParamList, labelKey: 'manage.quick.report' as TranslationKey, icon: 'bar-chart-outline' as const },
+  { key: 'CustomersList' as keyof ManageStackParamList, labelKey: 'manage.quick.addCustomer' as TranslationKey, icon: 'person-add-outline' as const },
 ];
 
 const BOOKKEEPING_STATS = [
-  { label: 'DT Quý 4', value: '287.4M', color: Colors.success },
-  { label: 'Thuế phải nộp', value: '14.3M', color: Colors.danger },
-  { label: 'Hạn nộp', value: '31/01', color: Colors.warning },
+  { labelKey: 'manage.stat.q4Revenue' as TranslationKey, value: '287.4M', color: Colors.success },
+  { labelKey: 'manage.stat.taxDue' as TranslationKey, value: '14.3M', color: Colors.danger },
+  { labelKey: 'manage.stat.dueDate' as TranslationKey, value: '31/01', color: Colors.warning },
 ];
 
-const BOOKKEEPING_LINKS = ['Kê khai Q4', 'Hóa đơn VAT', 'Thu/Chi', 'Báo cáo'];
+const BOOKKEEPING_LINK_KEYS: TranslationKey[] = [
+  'manage.link.q4Declaration',
+  'manage.link.vatInvoice',
+  'manage.link.incomeExpense',
+  'manage.link.report',
+];
 
 const RECENT_PRODUCTS = [
   { id: 1, name: 'Áo thun basic trắng', sku: 'AT-001', price: 120000, stock: 45 },
@@ -82,50 +92,41 @@ const RECENT_PRODUCTS = [
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-function vnd(n: number) {
-  return n.toLocaleString('vi-VN') + ' đ';
+function money(n: number, dateLocale: string, currency: string) {
+  return `${n.toLocaleString(dateLocale)} ${currency}`;
 }
-
-function StatusDot({ status }: { status: Platform['status'] }) {
-  const color =
-    status === 'online' ? Colors.success :
-    status === 'syncing' ? Colors.warning :
-    Colors.textSecondary;
-  return (
-    <View style={[dotStyles.dot, { backgroundColor: color }]} />
-  );
-}
-
-const dotStyles = StyleSheet.create({
-  dot: { width: 8, height: 8, borderRadius: 4 },
-});
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export function ManageScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useThemeMode();
+  const { dateLocale, t } = useLanguage();
   const navigation = useNavigation<NavProp>();
   const [search, setSearch] = useState('');
+  const connectedPlatforms = PLATFORMS.filter(p => p.connected);
+  const totalOrdersToday = connectedPlatforms.reduce((sum, p) => sum + p.orders, 0);
+  const totalPendingOrders = connectedPlatforms.reduce((sum, p) => sum + p.pending, 0);
 
   function navigate(key: keyof ManageStackParamList) {
     navigation.navigate(key as any);
   }
 
   return (
-    <View style={[styles.screen, { backgroundColor: Colors.background }]}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
       {/* ── Header ── */}
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <Text style={styles.headerTitle}>Quản lý</Text>
-        <TouchableOpacity style={styles.headerIcon} onPress={() => navigate('QrScan')}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t('manage.title')}</Text>
+        {/* <TouchableOpacity style={styles.headerIcon} onPress={() => navigate('QrScan')}>
           <Ionicons name="qr-code-outline" size={22} color={Colors.text} />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
 
       {/* ── Search ── */}
       <SearchBar
         value={search}
         onChangeText={setSearch}
-        placeholder="Tìm sản phẩm, đơn hàng, khách hàng..."
+        placeholder={t('manage.searchPlaceholder')}
         onQrPress={() => navigate('QrScan')}
       />
 
@@ -143,12 +144,12 @@ export function ManageScreen() {
           {QUICK_ACTIONS.map(action => (
             <TouchableOpacity
               key={action.key}
-              style={styles.quickChip}
+              style={[styles.quickChip, { backgroundColor: colors.primaryLight }]}
               onPress={() => navigate(action.key)}
               activeOpacity={0.7}
             >
               <Ionicons name={action.icon} size={16} color={Colors.primary} style={{ marginRight: 4 }} />
-              <Text style={styles.quickChipLabel}>{action.label}</Text>
+              <Text style={[styles.quickChipLabel, { color: colors.primary }]}>{t(action.labelKey)}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -160,26 +161,26 @@ export function ManageScreen() {
               <View style={styles.bookkeepingHeader}>
                 <View style={styles.bookkeepingTitleRow}>
                   <Ionicons name="calculator" size={20} color="#fff" />
-                  <Text style={styles.bookkeepingTitle}>Sổ sách kế toán</Text>
+                  <Text style={[styles.bookkeepingTitle, { color: '#fff' }]}>{t('manage.bookkeepingTitle')}</Text>
                 </View>
                 <View style={styles.taxPill}>
-                  <Text style={styles.taxPillText}>Kê khai thuế hộ KD</Text>
+                  <Text style={[styles.taxPillText, { color: '#fff' }]}>{t('manage.taxDeclaration')}</Text>
                 </View>
               </View>
 
               <View style={styles.bookkeepingStats}>
                 {BOOKKEEPING_STATS.map(s => (
-                  <View key={s.label} style={styles.bookkeepingStat}>
-                    <Text style={styles.bookkeepingStatValue}>{s.value}</Text>
-                    <Text style={styles.bookkeepingStatLabel}>{s.label}</Text>
+                  <View key={s.labelKey} style={styles.bookkeepingStat}>
+                    <Text style={[styles.bookkeepingStatValue, { color: '#fff' }]}>{s.value}</Text>
+                    <Text style={[styles.bookkeepingStatLabel, { color: 'rgba(255,255,255,0.78)' }]}>{t(s.labelKey)}</Text>
                   </View>
                 ))}
               </View>
 
               <View style={styles.bookkeepingLinks}>
-                {BOOKKEEPING_LINKS.map(l => (
+                {BOOKKEEPING_LINK_KEYS.map(l => (
                   <View key={l} style={styles.bookkeepingLinkChip}>
-                    <Text style={styles.bookkeepingLinkText}>{l}</Text>
+                    <Text style={[styles.bookkeepingLinkText, { color: '#fff' }]}>{t(l)}</Text>
                   </View>
                 ))}
               </View>
@@ -188,64 +189,108 @@ export function ManageScreen() {
         </View>
 
         {/* ── E-commerce Platforms ── */}
-        <SectionHeader title="Sàn thương mại điện tử" action="Kết nối thêm" />
         <View style={styles.px}>
           <Card padding={Spacing.md}>
+            <View style={styles.platformSectionHeaderWrap}>
+              <SectionHeader title={t('manage.ecommercePlatforms')}/>
+            </View>
             <View style={styles.platformGrid}>
               {PLATFORMS.map(p => (
                 <TouchableOpacity
                   key={p.key}
-                  style={styles.platformCard}
+                  style={[styles.platformCard, { backgroundColor: colors.background, borderColor: colors.border }, !p.connected && styles.platformCardDisabled]}
                   onPress={() => navigate('EcommerceMain')}
                   activeOpacity={0.7}
                 >
                   <View style={styles.platformTop}>
-                    <Text style={styles.platformEmoji}>{p.emoji}</Text>
-                    <StatusDot status={p.status} />
+                    <Image source={p.logo} style={styles.platformLogo} resizeMode="contain" />
+                    <Text style={[styles.platformStateText, p.connected ? styles.stateOn : styles.stateOff]}>
+                      {p.connected ? 'ON' : 'OFF'}
+                    </Text>
                   </View>
                   <Text style={styles.platformName}>{p.label}</Text>
-                  <Text style={styles.platformOrders}>{p.orders} đơn</Text>
+                  {p.connected ? (
+                    <View style={styles.platformMetaRow}>
+                      <Text style={styles.platformOrders}>{t('manage.orderCount', { count: p.orders })}</Text>
+                      {p.pending > 0 && (
+                        <>
+                          <Ionicons
+                            name="ellipse"
+                            size={5}
+                            color={Colors.textSecondary}
+                            style={styles.platformMetaDot}
+                          />
+                          <Text style={styles.platformPendingOrders}>{t('manage.pendingCount', { count: p.pending })}</Text>
+                        </>
+                      )}
+                    </View>
+                  ) : (
+                    <Text style={[styles.platformOrders, styles.platformOrdersStandalone]}>{t('manage.notConnected')}</Text>
+                  )}
                 </TouchableOpacity>
               ))}
+            </View>
+            <View style={styles.platformSummary}>
+              <View style={styles.platformSummaryDivider}>
+                {Array.from({ length: 36 }).map((_, i) => (
+                  <View key={`dash-${i}`} style={styles.platformSummaryDash} />
+                ))}
+              </View>
+              <View style={styles.platformSummaryLine}>
+                <Text style={styles.platformSummaryLabel}>{t('manage.totalOrdersToday')}</Text>
+                <View style={styles.platformSummaryMetrics}>
+                  <Text style={styles.platformSummaryTotal}>{t('manage.orderCount', { count: totalOrdersToday })}</Text>
+                  {/* <Text style={styles.platformSummaryDot}>.</Text> */}
+                  <Ionicons
+                    name="ellipse"
+                    size={5}
+                    color={Colors.textSecondary}
+                    style={styles.platformMetaDot}
+                  />
+                  <Text style={styles.platformSummaryPendingText}>{t('manage.pendingCount', { count: totalPendingOrders })}</Text>
+                </View>
+              </View>
             </View>
           </Card>
         </View>
 
-        {/* ── Management Sections Grid ── */}
-        <SectionHeader title="Quản lý" />
-        <View style={styles.sectionsGrid}>
-          {SECTIONS.map((s, i) => (
-            <TouchableOpacity
-              key={`${s.key}-${i}`}
-              style={styles.sectionItem}
-              onPress={() => navigate(s.key)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.sectionIconWrap, { backgroundColor: (s.color || Colors.primary) + '18' }]}>
-                <Ionicons name={s.icon} size={22} color={s.color || Colors.primary} />
-                {s.badge !== undefined && (
-                  <View style={styles.sectionBadge}>
-                    <Text style={styles.sectionBadgeText}>
-                      {s.badge > 99 ? '99+' : s.badge}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.sectionLabel} numberOfLines={2}>{s.label}</Text>
-            </TouchableOpacity>
-          ))}
+        {/* ── Management Sections ── */}
+        <SectionHeader title={t('manage.title')} />
+        <View style={styles.px}>
+          <Card padding={0}>
+            {SECTIONS.map((s, i) => (
+              <TouchableOpacity
+                key={`${s.key}-${i}`}
+                style={[
+                  styles.sectionRow,
+                  i < SECTIONS.length - 1 && styles.rowBorder,
+                ]}
+                onPress={() => navigate(s.key)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.sectionRowIconWrap, { backgroundColor: (s.color || Colors.primary) + '18' }]}>
+                  <Ionicons name={s.icon} size={20} color={s.color || Colors.primary} />
+                </View>
+                <View style={styles.sectionRowContent}>
+                  <Text style={styles.sectionRowLabel}>{t(s.labelKey)}</Text>
+                  <Text style={styles.sectionRowStat}>{t(s.statKey)}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
+          </Card>
         </View>
 
         {/* ── Recent Products ── */}
-        <SectionHeader title="Sản phẩm gần đây" action="Xem tất cả" onAction={() => navigate('ProductsList')} />
+        <SectionHeader title={t('manage.recentProducts')} action={t('manage.viewAll')} onAction={() => navigate('ProductsList')} />
         <View style={styles.px}>
           <Card padding={0} style={styles.tableCard}>
-            {RECENT_PRODUCTS.map((p, i) => (
+            {RECENT_PRODUCTS.slice(0, 3).map((p, i) => (
               <TouchableOpacity
                 key={p.id}
                 style={[
                   styles.productRow,
-                  i < RECENT_PRODUCTS.length - 1 && styles.rowBorder,
+                  i < Math.min(RECENT_PRODUCTS.length, 3) - 1 && styles.rowBorder,
                 ]}
                 onPress={() => navigation.navigate('ProductEdit', { id: p.id })}
                 activeOpacity={0.7}
@@ -258,9 +303,9 @@ export function ManageScreen() {
                   <Text style={styles.productSku}>{p.sku}</Text>
                 </View>
                 <View style={styles.productRight}>
-                  <Text style={styles.productPrice}>{vnd(p.price)}</Text>
+                  <Text style={styles.productPrice}>{money(p.price, dateLocale, t('home.currency'))}</Text>
                   <Text style={[styles.productStock, p.stock <= 5 && { color: Colors.danger }]}>
-                    Tồn: {p.stock}
+                    {t('manage.stock', { count: p.stock })}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -284,6 +329,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    borderStyle: 'dashed',
   },
   headerTitle: {
     ...Typography.h2,
@@ -382,18 +430,25 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   // Platforms
+  platformSectionHeaderWrap: {
+    marginHorizontal: -Spacing.lg,
+  },
   platformGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.sm,
+    justifyContent: 'space-between',
+    rowGap: Spacing.sm,
   },
   platformCard: {
-    width: '47%',
+    width: '48%',
     backgroundColor: Colors.background,
     borderRadius: Radius.md,
     padding: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.border,
+  },
+  platformCardDisabled: {
+    opacity: 0.55,
   },
   platformTop: {
     flexDirection: 'row',
@@ -401,8 +456,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.xs,
   },
-  platformEmoji: {
-    fontSize: 22,
+  platformLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: Radius.sm,
+  },
+  platformStateText: {
+    ...Typography.captionMd,
+    fontWeight: '700',
+  },
+  stateOn: {
+    color: Colors.success,
+  },
+  stateOff: {
+    color: Colors.textSecondary,
   },
   platformName: {
     ...Typography.bodyMd,
@@ -411,54 +478,92 @@ const styles = StyleSheet.create({
   platformOrders: {
     ...Typography.caption,
     color: Colors.textSecondary,
+  },
+  platformPendingOrders: {
+    ...Typography.caption,
+    color: Colors.warning,
+  },
+  platformOrdersStandalone: {
     marginTop: 2,
   },
-  // Management sections grid
-  sectionsGrid: {
+  platformMetaRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: Spacing.lg,
-    gap: Spacing.sm,
+    alignItems: 'center',
+    marginTop: 2,
   },
-  sectionItem: {
-    width: '18%',
+  platformMetaDot: {
+    marginHorizontal: 6,
+    alignSelf: 'center',
+  },
+  platformSummary: {
+    marginTop: Spacing.md,
+  },
+  platformSummaryDivider: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+    overflow: 'hidden',
+  },
+  platformSummaryDash: {
+    width: 6,
+    height: 1.5,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.border,
+  },
+  platformSummaryLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  platformSummaryLabel: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+  },
+  platformSummaryMetrics: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  platformSummaryTotal: {
+    ...Typography.h4,
+    color: Colors.text,
+  },
+  platformSummaryDot: {
+    ...Typography.bodyMd,
+    color: Colors.textSecondary,
+    marginHorizontal: 6,
+  },
+  platformSummaryPendingText: {
+    ...Typography.bodyMd,
+    color: Colors.warning,
+  },
+  // Management sections list
+  sectionRow: {
+    flexDirection: 'row',
     flex: 1,
     alignItems: 'center',
-    gap: Spacing.xs,
-    minWidth: 60,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    gap: Spacing.sm,
   },
-  sectionIconWrap: {
-    width: 52,
-    height: 52,
+  sectionRowIconWrap: {
+    width: 42,
+    height: 42,
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
-  sectionBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: Colors.danger,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-    borderWidth: 1.5,
-    borderColor: Colors.background,
+  sectionRowContent: {
+    flex: 1,
   },
-  sectionBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  sectionLabel: {
-    ...Typography.label,
+  sectionRowLabel: {
+    ...Typography.bodyMd,
     color: Colors.text,
-    textAlign: 'center',
-    fontSize: 10,
+  },
+  sectionRowStat: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
   // Table
   tableCard: {

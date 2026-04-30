@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -25,6 +24,21 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "VMASS cần truy cập camera để quét mã vạch và QR code."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "VMASS cần truy cập thư viện ảnh để tìm sản phẩm bằng hình ảnh."
+        }
+      ]
+    ]
   }
 }

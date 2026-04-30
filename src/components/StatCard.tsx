@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
-import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
+import { Colors, Typography, Spacing, Radius, Shadow, useThemeMode } from '../theme';
 
 interface StatCardProps {
   label: string;
@@ -12,10 +12,11 @@ interface StatCardProps {
 }
 
 export function StatCard({ label, value, sub, color, style, dark }: StatCardProps) {
-  const bg = dark ? Colors.primary : Colors.card;
-  const textColor = dark ? '#fff' : Colors.text;
-  const subColor = dark ? 'rgba(255,255,255,0.7)' : Colors.textSecondary;
-  const labelColor = dark ? 'rgba(255,255,255,0.8)' : Colors.textSecondary;
+  const { colors } = useThemeMode();
+  const bg = dark ? colors.primary : colors.card;
+  const textColor = dark ? '#fff' : colors.text;
+  const subColor = dark ? 'rgba(255,255,255,0.7)' : colors.textSecondary;
+  const labelColor = dark ? 'rgba(255,255,255,0.8)' : colors.textSecondary;
 
   return (
     <View style={[styles.card, { backgroundColor: bg }, style]}>
