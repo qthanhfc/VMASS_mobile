@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  RefreshControl,
   View,
   Text,
   FlatList,
@@ -14,23 +16,18 @@ import { Header, SearchBar, ChipRow } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 import { Customer } from '../../types';
+import {
+  getCachedCustomers,
+  listAllCustomers,
+  listCustomers,
+  type CustomerRow,
+} from '../../services';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
 type CustomerFilter = 'all' | 'VIP' | 'Gold' | 'Silver' | 'Normal' | 'new' | 'debt';
+type CustomerSort = 'spent_desc' | 'spent_asc';
 
-type CustomerRow = Customer & {
-  hasDebt?: boolean;
-};
-
-const MOCK_CUSTOMERS: CustomerRow[] = [
-  { id: 1, name: 'Nguyễn Thị Lan', phone: '0912 345 678', totalSpent: 18400000, orderCount: 42, points: 1840, tier: 'VIP', email: 'lan@gmail.com', createdAt: '2026-01-15' },
-  { id: 2, name: 'Trần Văn Minh', phone: '0987 654 321', totalSpent: 12100000, orderCount: 28, points: 1210, tier: 'Gold', email: 'minh@gmail.com', createdAt: '2025-11-20' },
-  { id: 3, name: 'Lê Thị Hoa', phone: '0901 234 567', totalSpent: 5800000, orderCount: 15, points: 580, tier: 'Silver', createdAt: '2025-10-05' },
-  { id: 4, name: 'Phạm Đức Anh', phone: '0934 567 890', totalSpent: 3200000, orderCount: 8, points: 320, tier: 'Normal', createdAt: '2026-02-10' },
-  { id: 5, name: 'Vũ Thị Mai', phone: '0967 890 123', totalSpent: 850000, orderCount: 3, points: 85, tier: 'Normal', createdAt: '2026-04-08' },
-  { id: 6, name: 'Hoàng Văn Tú', phone: '0945 678 901', totalSpent: 24700000, orderCount: 52, points: 2470, tier: 'VIP', createdAt: '2025-08-01' },
-  { id: 7, name: 'Đỗ Thị Hương', phone: '0923 456 789', totalSpent: 7300000, orderCount: 19, points: 730, tier: 'Gold', createdAt: '2026-04-15', hasDebt: true },
-];
+const PAGE_SIZE = 12;
 
 const TIER_META: Record<Customer['tier'], { color: string; bg: string; labelKey: TranslationKey }> = {
   VIP: { color: '#d97757', bg: '#fff1eb', labelKey: 'customers.tier.vip' },
@@ -49,6 +46,15 @@ const FILTER_CHIPS: Array<{ key: CustomerFilter; labelKey: TranslationKey }> = [
   { key: 'debt', labelKey: 'suppliers.withDebt' },
 ];
 
+const FILTER_COLOR: Partial<Record<CustomerFilter, string>> = {
+  VIP: TIER_META.VIP.color,
+  Gold: TIER_META.Gold.color,
+  Silver: TIER_META.Silver.color,
+  Normal: TIER_META.Normal.color,
+  new: Colors.success,
+  debt: Colors.danger,
+};
+
 function compactMoney(value: number): string {
   if (value >= 1_000_000) {
     const million = value / 1_000_000;
@@ -60,12 +66,48 @@ function compactMoney(value: number): string {
   return String(value);
 }
 
+function compactMoneyLower(value: number): string {
+  return compactMoney(value).replace('K', 'k');
+}
+
+function formatDebtVnd(value: number): string {
+  return `${Math.round(value).toLocaleString('vi-VN')}đ`;
+}
+
 function firstLetter(name: string): string {
   return name.trim().charAt(0).toUpperCase();
 }
 
 function normalizePhone(phone: string): string {
-  return phone.replace(/\s+/g, '');
+  return phone.replace(/[^\d+]/g, '');
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function customerKey(customer: CustomerRow): string {
+  if (customer.id > 0) return `id:${customer.id}`;
+  const phone = normalizePhone(customer.phone);
+  if (phone) return `phone:${phone}`;
+  if (customer.email) return `email:${customer.email.toLowerCase()}`;
+  return `name:${customer.name.trim().toLowerCase()}`;
+}
+
+function uniqueCustomers(customers: CustomerRow[]): CustomerRow[] {
+  const seen = new Set<string>();
+
+  return customers.filter((customer) => {
+    const key = customerKey(customer);
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
+  });
 }
 
 export function CustomersListScreen() {
@@ -73,13 +115,142 @@ export function CustomersListScreen() {
   const { dateLocale, t } = useLanguage();
   const navigation = useNavigation<Nav>();
   const [search, setSearch] = useState('');
+  const [searchedCustomers, setSearchedCustomers] = useState<CustomerRow[] | null>(null);
   const [filter, setFilter] = useState<CustomerFilter>('all');
+  const [sortBy, setSortBy] = useState<CustomerSort>('spent_desc');
+  const [customers, setCustomers] = useState<CustomerRow[]>([]);
+  const [allCustomers, setAllCustomers] = useState<CustomerRow[]>([]);
+  const [totalItem, setTotalItem] = useState(0);
+  const [totalPage, setTotalPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const [usingCache, setUsingCache] = useState(false);
+  const requestSeq = useRef(0);
+  const searchRequestSeq = useRef(0);
 
-  const totalSpent = useMemo(() => MOCK_CUSTOMERS.reduce((sum, customer) => sum + customer.totalSpent, 0), []);
+  const loadCustomers = useCallback(
+    async (page = 1, options?: { append?: boolean; silent?: boolean }) => {
+      const seq = requestSeq.current + 1;
+      requestSeq.current = seq;
+
+      if (options?.append) {
+        setLoadingMore(true);
+      } else if (options?.silent) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError('');
+
+      try {
+        const [result, allItems] = await Promise.all([
+          listCustomers({
+            pageSize: PAGE_SIZE,
+            currentPage: page,
+            search: '',
+          }),
+          page === 1 ? listAllCustomers() : Promise.resolve(null),
+        ]);
+
+        if (requestSeq.current !== seq) return;
+
+        setCustomers((prev) => {
+          if (!options?.append) return uniqueCustomers(result.items);
+
+          const seen = new Set(prev.map(customerKey));
+          return uniqueCustomers([...prev, ...result.items.filter((item) => !seen.has(customerKey(item)))]);
+        });
+        setTotalItem(result.totalItem);
+        setTotalPage(Math.max(result.totalPage, 1));
+        setCurrentPage(result.currentPage);
+        setUsingCache(false);
+        if (allItems) {
+          setAllCustomers(uniqueCustomers(allItems));
+        }
+      } catch (err) {
+        if (requestSeq.current !== seq) return;
+
+        const message = err instanceof Error ? err.message : 'Không thể tải danh sách khách hàng.';
+        setError(message);
+
+        if (page === 1) {
+          const cached = await getCachedCustomers();
+          if (cached) {
+            const cachedItems = uniqueCustomers(cached.items);
+            setCustomers(cachedItems);
+            setAllCustomers(cachedItems);
+            setTotalItem(cached.totalItem);
+            setTotalPage(cached.totalPage);
+            setCurrentPage(cached.currentPage);
+            setUsingCache(true);
+          } else {
+            setCustomers([]);
+            setAllCustomers([]);
+            setTotalItem(0);
+            setTotalPage(1);
+            setCurrentPage(1);
+          }
+        }
+      } finally {
+        if (requestSeq.current === seq) {
+          setLoading(false);
+          setRefreshing(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    loadCustomers(1);
+  }, [loadCustomers]);
+
+  useEffect(() => {
+    const keyword = search.trim();
+    if (!keyword) {
+      setSearchedCustomers(null);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      const seq = searchRequestSeq.current + 1;
+      searchRequestSeq.current = seq;
+
+      try {
+        const result = await listCustomers({
+          pageSize: 200,
+          currentPage: 1,
+          search: keyword,
+        });
+
+        if (searchRequestSeq.current !== seq) return;
+        setSearchedCustomers(uniqueCustomers(result.items));
+      } catch {
+        if (searchRequestSeq.current !== seq) return;
+        setSearchedCustomers([]);
+      }
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  const statsCustomers = useMemo(
+    () => uniqueCustomers(allCustomers.length ? allCustomers : customers),
+    [allCustomers, customers],
+  );
+
+  const totalSpent = useMemo(
+    () => statsCustomers.reduce((sum, customer) => sum + customer.totalSpent, 0),
+    [statsCustomers],
+  );
 
   const avgSpent = useMemo(
-    () => (MOCK_CUSTOMERS.length ? Math.round(totalSpent / MOCK_CUSTOMERS.length) : 0),
-    [totalSpent]
+    () => (statsCustomers.length ? Math.round(totalSpent / statsCustomers.length) : 0),
+    [statsCustomers.length, totalSpent],
   );
 
   const thisMonthPrefix = useMemo(() => {
@@ -89,33 +260,95 @@ export function CustomersListScreen() {
   }, []);
 
   const newThisMonth = useMemo(
-    () => MOCK_CUSTOMERS.filter((customer) => customer.createdAt.startsWith(thisMonthPrefix)).length,
-    [thisMonthPrefix]
+    () => statsCustomers.filter((customer) => customer.createdAt.startsWith(thisMonthPrefix)).length,
+    [statsCustomers, thisMonthPrefix],
   );
 
-  const totalCustomers = MOCK_CUSTOMERS.length;
-  const vipCustomers = MOCK_CUSTOMERS.filter((customer) => customer.tier === 'VIP').length;
+  const totalCustomers = statsCustomers.length || totalItem;
+  const vipCustomers = statsCustomers.filter((customer) => customer.tier === 'VIP').length;
+  const hasSearchQuery = search.trim().length > 0;
+  const hasMore =
+    filter === 'all' &&
+    !hasSearchQuery &&
+    currentPage < totalPage &&
+    customers.length < totalCustomers;
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const filterChips = useMemo(() => {
+    const getFilterCount = (filterKey: CustomerFilter) => {
+      if (filterKey === 'all') return totalCustomers;
+      if (filterKey === 'new') {
+        return statsCustomers.filter((customer) => customer.createdAt.startsWith(thisMonthPrefix)).length;
+      }
+      if (filterKey === 'debt') {
+        return statsCustomers.filter((customer) => customer.hasDebt).length;
+      }
 
-    return MOCK_CUSTOMERS
+      return statsCustomers.filter((customer) => customer.tier === filterKey).length;
+    };
+
+    return FILTER_CHIPS.map((chip) => ({
+      key: chip.key,
+      label: t(chip.labelKey),
+      count: getFilterCount(chip.key),
+      color: FILTER_COLOR[chip.key],
+    }));
+  }, [statsCustomers, t, thisMonthPrefix, totalCustomers]);
+
+  const displayedCustomers = useMemo(() => {
+    const query = normalizeSearchText(search);
+    const normalizedQueryPhone = normalizePhone(search);
+    const source = hasSearchQuery ? searchedCustomers || [] : statsCustomers;
+
+    const filteredItems = uniqueCustomers(source)
       .filter((customer) => {
+        const normalizedName = normalizeSearchText(customer.name);
+        const normalizedEmail = normalizeSearchText(customer.email || '');
         const bySearch =
           query.length === 0 ||
-          customer.name.toLowerCase().includes(query) ||
-          normalizePhone(customer.phone).includes(query.replace(/\s+/g, ''));
+          normalizedName.includes(query) ||
+          normalizePhone(customer.phone).includes(normalizedQueryPhone) ||
+          normalizedEmail.includes(query);
 
-        const byFilter =
-          filter === 'all' ||
-          (filter === 'new' && customer.orderCount <= 3) ||
-          (filter === 'debt' && !!customer.hasDebt) ||
-          customer.tier === filter;
+        let byFilter = true;
+        if (filter === 'new') {
+          byFilter = customer.createdAt.startsWith(thisMonthPrefix);
+        } else if (filter === 'debt') {
+          byFilter = customer.hasDebt;
+        } else if (filter !== 'all') {
+          byFilter = customer.tier === filter;
+        }
 
         return bySearch && byFilter;
-      })
-      .sort((a, b) => b.totalSpent - a.totalSpent);
-  }, [filter, search]);
+      });
+
+    if (sortBy === 'spent_asc') {
+      return filteredItems.sort((a, b) => a.totalSpent - b.totalSpent);
+    }
+
+    return filteredItems.sort((a, b) => b.totalSpent - a.totalSpent);
+  }, [filter, hasSearchQuery, search, searchedCustomers, sortBy, statsCustomers, thisMonthPrefix]);
+
+  const sortLabel =
+    sortBy === 'spent_desc'
+      ? t('customers.sortHighestSpend')
+      : 'Sắp xếp: Chi tiêu thấp nhất';
+
+  const handleRefresh = useCallback(() => {
+    loadCustomers(1, { silent: true });
+  }, [loadCustomers]);
+
+  const handleLoadMore = useCallback(() => {
+    if (loading || loadingMore || !hasMore) return;
+    loadCustomers(currentPage + 1, { append: true, silent: true });
+  }, [currentPage, hasMore, loadCustomers, loading, loadingMore]);
+
+  if (loading && customers.length === 0) {
+    return (
+      <View style={[styles.screen, styles.centerContent, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -123,60 +356,89 @@ export function CustomersListScreen() {
         title={t('customers.title')}
         subtitle={t('customers.subtitle', { total: totalCustomers.toLocaleString(dateLocale), vip: vipCustomers })}
         onBack={() => navigation.goBack()}
-        rightActions={
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerBtn}>
-              <Ionicons name="search" size={20} color={colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerBtn}>
-              <Ionicons name="filter-outline" size={20} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-        }
       />
-
-      <SearchBar
-        value={search}
-        onChangeText={setSearch}
-        placeholder={t('customers.searchPlaceholder')}
-      />
-
-      <View style={styles.heroWrap}>
-        <View style={styles.heroCard}>
-          <Text style={[styles.heroHeading, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.overview')}</Text>
-          <View style={styles.heroStatsRow}>
-            <View style={styles.heroStat}>
-              <Text style={[styles.heroValue, { color: '#fff' }]}>{compactMoney(totalSpent)}</Text>
-              <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.totalSpent')}</Text>
-            </View>
-            <View style={styles.heroStat}>
-              <Text style={[styles.heroValue, { color: '#fff' }]}>{compactMoney(avgSpent)}</Text>
-              <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.avgPerCustomer')}</Text>
-            </View>
-            <View style={styles.heroStat}>
-              <Text style={[styles.heroValue, { color: '#fff' }]}>+{newThisMonth}</Text>
-              <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.newThisMonth')}</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      <ChipRow chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))} selected={filter} onSelect={(key) => setFilter(key as CustomerFilter)} />
-
-      <View style={styles.sortRow}>
-        <Text style={[styles.sortText, { color: colors.textSecondary }]}>{t('customers.sortHighestSpend')}</Text>
-        <Ionicons name="chevron-down" size={14} color={colors.textSecondary} />
-      </View>
 
       <FlatList
-        data={filtered}
-        keyExtractor={(item) => String(item.id)}
+        data={displayedCustomers}
+        keyExtractor={(item, index) => `${customerKey(item)}:${index}`}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+            onRefresh={handleRefresh}
+          />
+        }
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.35}
+        ListHeaderComponent={
+          <View>
+            <View style={styles.fullBleedHeaderRow}>
+              <SearchBar
+                value={search}
+                onChangeText={setSearch}
+                placeholder={t('customers.searchPlaceholder')}
+              />
+            </View>
+
+            <View style={styles.heroWrap}>
+              <View style={styles.heroCard}>
+                <Text style={[styles.heroHeading, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.overview')}</Text>
+                <View style={styles.heroStatsRow}>
+                  <View style={styles.heroStat}>
+                    <Text style={[styles.heroValue, { color: '#fff' }]}>{compactMoney(totalSpent)}</Text>
+                    <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.totalSpent')}</Text>
+                  </View>
+                  <View style={styles.heroStat}>
+                    <Text style={[styles.heroValue, { color: '#fff' }]}>{compactMoney(avgSpent)}</Text>
+                    <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.avgPerCustomer')}</Text>
+                  </View>
+                  <View style={styles.heroStat}>
+                    <Text style={[styles.heroValue, { color: '#fff' }]}>+{newThisMonth}</Text>
+                    <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>{t('customers.newThisMonth')}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={[styles.fullBleedHeaderRow, styles.filterBleedRow, styles.filterNoTop]}>
+              <ChipRow chips={filterChips} selected={filter} onSelect={(key) => setFilter(key as CustomerFilter)} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.sortRow}
+              activeOpacity={0.8}
+              onPress={() =>
+                setSortBy((prev) => (prev === 'spent_desc' ? 'spent_asc' : 'spent_desc'))
+              }
+            >
+              <Text style={[styles.sortText, { color: colors.textSecondary }]}>{sortLabel}</Text>
+              <Ionicons
+                name={sortBy === 'spent_desc' ? 'chevron-down' : 'chevron-up'}
+                size={14}
+                color={colors.textSecondary}
+              />
+            </TouchableOpacity>
+
+            {error ? (
+              <View style={styles.errorBanner}>
+                <Ionicons name="warning-outline" size={16} color={Colors.danger} />
+                <Text style={styles.errorText} numberOfLines={2}>
+                  {usingCache ? 'Đang hiển thị dữ liệu đã lưu gần nhất.' : error}
+                </Text>
+                <TouchableOpacity onPress={() => loadCustomers(1)}>
+                  <Text style={styles.retryText}>Thử lại</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        }
         renderItem={({ item, index }) => {
           const isFirst = index === 0;
-          const isLast = index === filtered.length - 1;
-          const tier = TIER_META[item.tier];
+          const isLast = index === displayedCustomers.length - 1;
+          const tier = TIER_META[item.tier] || TIER_META.Normal;
 
           return (
             <TouchableOpacity
@@ -187,7 +449,7 @@ export function CustomersListScreen() {
                 !isFirst && [styles.customerRowWithSeparator, { borderTopColor: colors.border }],
                 isLast && styles.customerRowLast,
               ]}
-              onPress={() => navigation.navigate('CustomerEdit', { id: item.id })}
+              onPress={() => navigation.navigate('CustomerEdit', { id: item.id, phone: item.phone })}
               activeOpacity={0.8}
             >
               <View style={[styles.avatarCircle, { backgroundColor: tier.bg, borderColor: tier.color }]}>
@@ -202,9 +464,14 @@ export function CustomersListScreen() {
                   </View>
                 </View>
 
-                <Text style={[styles.customerPhone, { color: colors.textSecondary }]}>{item.phone}</Text>
+                <Text style={[styles.customerPhone, { color: colors.textSecondary }]}>
+                  {item.phone}
+                  {item.debt > 0 ? (
+                    <Text style={styles.debtInline}> · Công nợ: {formatDebtVnd(item.debt)}</Text>
+                  ) : null}
+                </Text>
                 <Text style={[styles.customerMeta, { color: colors.textSecondary }]}>
-                  {t('manage.orderCount', { count: item.orderCount })} · <Text style={[styles.customerSpent, { color: colors.primary }]}>{compactMoney(item.totalSpent)}</Text>
+                  {t('manage.orderCount', { count: item.orderCount })} · {t('orders.itemCount', { count: item.productCount })} · <Text style={[styles.customerSpent, { color: colors.primary }]}>{compactMoneyLower(item.totalSpent)}</Text> · {item.points.toLocaleString(dateLocale)} điểm
                 </Text>
               </View>
 
@@ -219,7 +486,17 @@ export function CustomersListScreen() {
           </View>
         }
         ListFooterComponent={
-          <Text style={[styles.loadMoreText, { color: colors.textSecondary }]}>{t('customers.loadMore')}</Text>
+          loadingMore ? (
+            <View style={styles.footerLoading}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+            </View>
+          ) : (
+            <Text style={[styles.loadMoreText, { color: colors.textSecondary }]}>
+              {hasMore
+                ? t('customers.loadMore')
+                : `${displayedCustomers.length.toLocaleString(dateLocale)} / ${totalCustomers.toLocaleString(dateLocale)}`}
+            </Text>
+          )
         }
       />
 
@@ -236,20 +513,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  headerBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.md,
+  centerContent: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroWrap: {
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
   },
   heroCard: {
@@ -283,7 +551,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   sortRow: {
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
@@ -292,6 +559,37 @@ const styles = StyleSheet.create({
   sortText: {
     ...Typography.caption,
     color: Colors.textSecondary,
+  },
+  errorBanner: {
+    marginBottom: Spacing.sm,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: '#f2c6c6',
+    backgroundColor: Colors.dangerLight,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  errorText: {
+    ...Typography.caption,
+    color: Colors.danger,
+    flex: 1,
+  },
+  retryText: {
+    ...Typography.captionMd,
+    color: Colors.danger,
+    fontWeight: '700',
+  },
+  fullBleedHeaderRow: {
+    marginHorizontal: -Spacing.lg,
+  },
+  filterBleedRow: {
+    paddingRight: Spacing.lg,
+  },
+  filterNoTop: {
+    marginTop: -Spacing.xs,
   },
   list: {
     paddingHorizontal: Spacing.lg,
@@ -351,6 +649,11 @@ const styles = StyleSheet.create({
     color: Colors.text,
     flex: 1,
   },
+  debtInline: {
+    ...Typography.captionMd,
+    color: Colors.danger,
+    fontWeight: '700',
+  },
   tierBadge: {
     borderRadius: 4,
     paddingHorizontal: 6,
@@ -390,6 +693,10 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.textSecondary,
     textAlign: 'center',
+    paddingVertical: Spacing.md,
+  },
+  footerLoading: {
+    alignItems: 'center',
     paddingVertical: Spacing.md,
   },
   fabPill: {

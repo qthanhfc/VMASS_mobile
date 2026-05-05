@@ -43,8 +43,8 @@ interface Platform {
 const SECTIONS: ManageSection[] = [
   { key: 'OrdersList', labelKey: 'manage.section.orders', icon: 'receipt-outline', statKey: 'manage.section.ordersStat', color: Colors.primary },
   { key: 'ProductsList', labelKey: 'manage.section.products', icon: 'shirt-outline', statKey: 'manage.section.productsStat', color: '#7c3aed' },
-  { key: 'CustomersList', labelKey: 'manage.section.customers', icon: 'people-outline', statKey: 'manage.section.customersStat', color: '#0891b2' },
   { key: 'InventoryMain', labelKey: 'manage.section.inventory', icon: 'cube-outline', statKey: 'manage.section.inventoryStat', color: Colors.warning },
+  { key: 'CustomersList', labelKey: 'manage.section.customers', icon: 'people-outline', statKey: 'manage.section.customersStat', color: '#0891b2' },
   { key: 'SuppliersList', labelKey: 'manage.section.suppliers', icon: 'business-outline', statKey: 'manage.section.suppliersStat', color: '#16a34a' },
   { key: 'ReturnsList', labelKey: 'manage.section.returns', icon: 'return-down-back-outline', statKey: 'manage.section.returnsStat', color: Colors.danger },
   { key: 'PromotionsList', labelKey: 'manage.section.promotions', icon: 'pricetag-outline', statKey: 'manage.section.promotionsStat', color: Colors.accent },

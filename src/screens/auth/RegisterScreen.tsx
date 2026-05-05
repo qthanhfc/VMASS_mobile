@@ -26,6 +26,7 @@ import {
   checkDomainAvailability,
   signUp,
 } from '../../services';
+import { useLanguage, type TranslationKey } from '../../i18n';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DomainStatus = 'idle' | 'checking' | 'available' | 'taken' | 'error';
@@ -36,18 +37,19 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const registerBackgroundImage = require('../../../assets/login-balloon.jpg');
 const vmassLogoImage = require('../../../assets/vmass-logo-horizontal.png');
 
-const businessTypeOptions = [
-  { value: 'cafe', label: 'Quán cà phê, trà sữa, trà chanh' },
-  { value: 'restaurant', label: 'Nhà hàng, quán ăn' },
-  { value: 'retail', label: 'Tạp hóa, bán lẻ' },
-  { value: 'fashion', label: 'Thời trang' },
-  { value: 'cosmetics', label: 'Mỹ phẩm' },
-  { value: 'retail', label: 'Mô hình khác' },
+const businessTypeOptions: Array<{ value: string; labelKey: TranslationKey }> = [
+  { value: 'cafe', labelKey: 'auth.business.cafe' },
+  { value: 'restaurant', labelKey: 'auth.business.restaurant' },
+  { value: 'retail', labelKey: 'auth.business.retail' },
+  { value: 'fashion', labelKey: 'auth.business.fashion' },
+  { value: 'cosmetics', labelKey: 'auth.business.cosmetics' },
+  { value: 'other', labelKey: 'auth.business.other' },
 ];
 
 export function RegisterScreen() {
   const navigation = useNavigation<Navigation>();
   const { colors, isDark } = useThemeMode();
+  const { t } = useLanguage();
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -104,7 +106,7 @@ export function RegisterScreen() {
     }
 
     let cancelled = false;
-    setDomainAvailability({ status: 'checking', message: 'Đang kiểm tra...' });
+    setDomainAvailability({ status: 'checking', message: t('auth.register.domainChecking') });
 
     const timeoutId = setTimeout(async () => {
       try {
@@ -119,8 +121,8 @@ export function RegisterScreen() {
           message:
             response.message ||
             (response.isAvailable
-              ? 'Tên miền có thể sử dụng!'
-              : 'Tên miền đã được sử dụng.'),
+              ? t('auth.register.domainAvailable')
+              : t('auth.register.domainTaken')),
         });
       } catch (error) {
         if (cancelled) {
@@ -130,7 +132,7 @@ export function RegisterScreen() {
         const message =
           error instanceof ApiError || error instanceof Error
             ? error.message
-            : 'Lỗi khi kiểm tra tên miền. Vui lòng thử lại.';
+            : t('auth.register.domainCheckError');
         setDomainAvailability({ status: 'error', message });
       }
     }, 500);
@@ -139,7 +141,7 @@ export function RegisterScreen() {
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [domain]);
+  }, [domain, t]);
 
   const domainRulesReady =
     domainConditions.noSpaces &&
@@ -170,18 +172,18 @@ export function RegisterScreen() {
 
   const availabilityText = (() => {
     if (!domain) {
-      return 'Không trùng với tên của cửa hàng khác';
+      return t('auth.register.domainUniqueHint');
     }
 
     if (!domainConditions.noSpaces || !domainConditions.onlyLowercaseAndNumbers) {
-      return 'Tên miền chỉ hỗ trợ chữ thường, số và _';
+      return t('auth.register.domainInvalid');
     }
 
     if (!domainConditions.isShopNameLike) {
-      return 'Tên cửa hàng phải có ít nhất 5 ký tự';
+      return t('auth.register.domainTooShort');
     }
 
-    return domainAvailability.message || 'Đang kiểm tra...';
+    return domainAvailability.message || t('auth.register.domainChecking');
   })();
 
   const handleDomainChange = (value: string) => {
@@ -202,37 +204,37 @@ export function RegisterScreen() {
       !normalizedDomain ||
       !password.trim()
     ) {
-      setErrorMessage('Vui lòng nhập đầy đủ các thông tin');
+      setErrorMessage(t('auth.register.missingInfo'));
       return;
     }
 
     if (!EMAIL_PATTERN.test(normalizedEmail)) {
-      setErrorMessage('Email không hợp lệ');
+      setErrorMessage(t('auth.register.invalidEmail'));
       return;
     }
 
     if (normalizedDomain.length < 5) {
-      setErrorMessage('Tên cửa hàng phải có ít nhất 5 ký tự');
+      setErrorMessage(t('auth.register.domainTooShort'));
       return;
     }
 
     if (!DOMAIN_PATTERN.test(normalizedDomain)) {
-      setErrorMessage('Tên cửa hàng chỉ hỗ trợ chữ thường, số và _');
+      setErrorMessage(t('auth.register.domainInvalid'));
       return;
     }
 
     if (password.length < 6) {
-      setErrorMessage('Mật khẩu phải có ít nhất 6 ký tự');
+      setErrorMessage(t('auth.register.passwordTooShort'));
       return;
     }
 
     if (domainAvailability.status === 'taken') {
-      setErrorMessage('Tên cửa hàng đã được đăng ký, vui lòng chọn tên khác');
+      setErrorMessage(t('auth.register.domainTakenError'));
       return;
     }
 
     if (domainAvailability.status === 'checking') {
-      setErrorMessage('Đang kiểm tra tên cửa hàng, vui lòng đợi...');
+      setErrorMessage(t('auth.register.domainCheckingWait'));
       return;
     }
 
@@ -255,7 +257,7 @@ export function RegisterScreen() {
       const message =
         error instanceof ApiError || error instanceof Error
           ? error.message
-          : 'Đăng ký thất bại. Vui lòng thử lại.';
+          : t('auth.register.failure');
       setErrorMessage(message);
     } finally {
       setSubmitting(false);
@@ -293,28 +295,28 @@ export function RegisterScreen() {
             >
               <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
                 <Ionicons name="chevron-back" size={22} color="#fff" />
-                <Text style={styles.backText}>Quay lại</Text>
+                <Text style={styles.backText}>{t('auth.register.back')}</Text>
               </TouchableOpacity>
 
               <View style={styles.hero}>
                 <View style={styles.heroCopy}>
-                  <Text style={styles.title}>Đăng ký</Text>
-                  <Text style={styles.subtitle}>Điền đầy đủ thông tin để hoàn tất đăng ký.</Text>
+                  <Text style={styles.title}>{t('auth.register.title')}</Text>
+                  <Text style={styles.subtitle}>{t('auth.register.subtitle')}</Text>
                 </View>
                 <Image source={vmassLogoImage} style={styles.logo} resizeMode="contain" />
               </View>
 
               <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={styles.label}>Họ và tên</Text>
+            <Text style={styles.label}>{t('auth.fullName')}</Text>
             <TextInput
               value={fullName}
               onChangeText={setFullName}
-              placeholder="Nguyễn Văn A"
+              placeholder={t('auth.fullNamePlaceholder')}
               placeholderTextColor={Colors.textSecondary}
               style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
             />
 
-            <Text style={styles.label}>Số điện thoại</Text>
+            <Text style={styles.label}>{t('auth.phone')}</Text>
             <TextInput
               value={phone}
               onChangeText={setPhone}
@@ -324,7 +326,7 @@ export function RegisterScreen() {
               style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
             />
 
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t('auth.email')}</Text>
             <TextInput
               value={email}
               onChangeText={setEmail}
@@ -335,7 +337,7 @@ export function RegisterScreen() {
               style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
             />
 
-            <Text style={styles.label}>Lĩnh vực kinh doanh</Text>
+            <Text style={styles.label}>{t('auth.businessType')}</Text>
             <Pressable
               style={[styles.selectField, { backgroundColor: colors.card, borderColor: colors.border }]}
               onPress={() => setBusinessTypeSelectOpen(true)}
@@ -346,18 +348,18 @@ export function RegisterScreen() {
                   !selectedBusinessType && styles.selectPlaceholder,
                 ]}
               >
-                {selectedBusinessType?.label || 'Vui lòng chọn lĩnh vực kinh doanh'}
+                {selectedBusinessType ? t(selectedBusinessType.labelKey) : t('auth.register.businessPlaceholder')}
               </Text>
               <Ionicons name="chevron-down" size={18} color={Colors.textSecondary} />
             </Pressable>
 
-            <Text style={styles.label}>Tên cửa hàng</Text>
+            <Text style={styles.label}>{t('auth.storeName')}</Text>
             <View style={[styles.domainRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TextInput
                 value={domain}
                 onChangeText={handleDomainChange}
                 autoCapitalize="none"
-                placeholder="tencuahang"
+                placeholder={t('auth.storePlaceholder')}
                 placeholderTextColor={Colors.textSecondary}
                 style={[styles.domainInput, { color: colors.text }]}
               />
@@ -367,15 +369,15 @@ export function RegisterScreen() {
             <View style={styles.ruleList}>
               {renderDomainRule(
                 domainConditions.noSpaces && domainConditions.onlyLowercaseAndNumbers,
-                'Viết liền không dấu',
+                t('auth.register.ruleNoAccent'),
               )}
               {renderDomainRule(
                 domainConditions.onlyLowercaseAndNumbers,
-                'Chỉ bao gồm chữ thường, số và _',
+                t('auth.register.ruleLowercase'),
               )}
               {renderDomainRule(
                 domainConditions.isShopNameLike,
-                'Là tên cửa hàng của bạn. Tối thiểu 5 ký tự',
+                t('auth.register.ruleShopName'),
               )}
               <View style={styles.ruleRow}>
                 <Ionicons name={availabilityIcon} size={16} color={availabilityColor} />
@@ -385,14 +387,14 @@ export function RegisterScreen() {
               </View>
             </View>
 
-            <Text style={styles.label}>Mật khẩu</Text>
+            <Text style={styles.label}>{t('auth.password')}</Text>
             <View style={[styles.passwordRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TextInput
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={hidePassword}
                 autoCapitalize="none"
-                placeholder="Tối thiểu 6 ký tự"
+                placeholder={t('auth.register.passwordPlaceholder')}
                 placeholderTextColor={Colors.textSecondary}
                 style={[styles.passwordInput, { color: colors.text }]}
               />
@@ -415,14 +417,14 @@ export function RegisterScreen() {
               {submitting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.primaryBtnText}>Đăng ký</Text>
+                <Text style={styles.primaryBtnText}>{t('auth.register.submit')}</Text>
               )}
             </TouchableOpacity>
 
             <View style={styles.footerRow}>
-              <Text style={styles.footerText}>Đã có tài khoản?</Text>
+              <Text style={styles.footerText}>{t('auth.register.hasAccount')}</Text>
               <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-                <Text style={styles.footerLink}>Đăng nhập</Text>
+                <Text style={styles.footerLink}>{t('auth.register.login')}</Text>
               </TouchableOpacity>
             </View>
               </View>
@@ -441,7 +443,7 @@ export function RegisterScreen() {
             >
               <Pressable style={[styles.selectModal, { backgroundColor: colors.card }]}>
                 <View style={styles.selectModalHeader}>
-                  <Text style={styles.selectModalTitle}>Lĩnh vực kinh doanh</Text>
+                  <Text style={styles.selectModalTitle}>{t('auth.businessType')}</Text>
                   <Pressable
                     style={styles.modalCloseBtn}
                     onPress={() => setBusinessTypeSelectOpen(false)}
@@ -455,7 +457,7 @@ export function RegisterScreen() {
 
                   return (
                     <Pressable
-                      key={`${option.value}-${option.label}`}
+                      key={`${option.value}-${option.labelKey}`}
                       style={[styles.selectOption, selected && styles.selectOptionActive]}
                       onPress={() => {
                         setSelectedBusinessTypeIndex(index);
@@ -465,7 +467,7 @@ export function RegisterScreen() {
                       <Text
                         style={[styles.selectOptionText, selected && styles.selectOptionTextActive]}
                       >
-                        {option.label}
+                        {t(option.labelKey)}
                       </Text>
                       {selected ? (
                         <Ionicons name="checkmark" size={18} color={Colors.primary} />

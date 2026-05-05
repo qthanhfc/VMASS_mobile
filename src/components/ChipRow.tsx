@@ -6,6 +6,7 @@ interface Chip {
   key: string;
   label: string;
   count?: number;
+  color?: string;
 }
 
 interface ChipRowProps {
@@ -38,8 +39,8 @@ export function ChipRow({ chips, selected, onSelect }: ChipRowProps) {
               pressed && styles.chipPressed,
             ]}
           >
-            <Text style={[styles.label, { color: colors.textSecondary }, selected === chip.key && styles.labelActive]}>
-              {chip.label}{chip.count !== undefined ? ` (${chip.count})` : ''}
+            <Text style={[styles.label, { color: chip.color || colors.textSecondary }, selected === chip.key && styles.labelActive]}>
+              {chip.label}{chip.count !== undefined ? ` · ${chip.count}` : ''}
             </Text>
           </Pressable>
         ))}

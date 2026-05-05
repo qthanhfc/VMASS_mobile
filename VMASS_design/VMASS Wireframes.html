@@ -6074,9 +6074,11 @@ mount();
 <script type="text/babel" src="components/manage-screen.jsx" data-plugins="transform-react-jsx-source" data-filename="components/manage-screen.jsx"></script>
 <script type="text/babel" src="components/messages-screen.jsx" data-plugins="transform-react-jsx-source" data-filename="components/messages-screen.jsx"></script>
 <script type="text/babel" src="components/other-screens.jsx" data-plugins="transform-react-jsx-source" data-filename="components/other-screens.jsx"></script>
+<script type="text/babel" src="components/settings-detail.jsx" data-plugins="transform-react-jsx-source" data-filename="components/settings-detail.jsx"></script>
 <script type="text/babel" src="components/detail-screens.jsx" data-plugins="transform-react-jsx-source" data-filename="components/detail-screens.jsx"></script>
 <script type="text/babel" src="components/list-screens.jsx" data-plugins="transform-react-jsx-source" data-filename="components/list-screens.jsx"></script>
 <script type="text/babel" src="components/list-screens-2.jsx" data-plugins="transform-react-jsx-source" data-filename="components/list-screens-2.jsx"></script>
+<script type="text/babel" src="components/edit-screens-2.jsx" data-plugins="transform-react-jsx-source" data-filename="components/edit-screens-2.jsx"></script>
 
 <script type="text/babel" data-plugins="transform-react-jsx-source" data-filename="inline-7">
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -6114,6 +6116,20 @@ function FullScreen({ tab = 'home', variant = 1, dark = false, lang = 'vi', dens
   else if (tab === 'bookkeeping') { screen = <BookkeepingScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
   else if (tab === 'tax') { screen = <TaxScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
   else if (tab === 'ecommerce') { screen = <EcommerceScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'inventory-receive') { screen = <InventoryEditScreen dark={dark} lang={lang} variant={variant} mode="receive"/>; activeTab = 'manage'; }
+  else if (tab === 'inventory-transfer') { screen = <InventoryEditScreen dark={dark} lang={lang} variant={variant} mode="transfer"/>; activeTab = 'manage'; }
+  else if (tab === 'inventory-adjust') { screen = <InventoryEditScreen dark={dark} lang={lang} variant={variant} mode="adjust"/>; activeTab = 'manage'; }
+  else if (tab === 'supplier-edit') { screen = <SupplierEditScreen dark={dark} lang={lang} variant={variant} mode="edit"/>; activeTab = 'manage'; }
+  else if (tab === 'supplier-new') { screen = <SupplierEditScreen dark={dark} lang={lang} variant={variant} mode="create"/>; activeTab = 'manage'; }
+  else if (tab === 'return-edit') { screen = <ReturnEditScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'promotion-edit') { screen = <PromotionEditScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'bookkeeping-edit') { screen = <BookkeepingEditScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'set-roles') { screen = <RolesScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
+  else if (tab === 'set-profile') { screen = <ProfileScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
+  else if (tab === 'set-stores') { screen = <StoresScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
+  else if (tab === 'set-receipt') { screen = <ReceiptTemplateScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
+  else if (tab === 'set-scanner') { screen = <ScannerConfigScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
+  else if (tab === 'set-pos') { screen = <PosConfigScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
 
   return (
     <SketchPhone dark={dark} label={label}>
@@ -6296,6 +6312,96 @@ function OverviewCanvas({ variant, dark, lang, density }) {
             : 'Books follow Circular 88/2021 · Sole-prop tax · Connects 6 platforms'}
         </DCPostIt>
       </div>
+
+      {/* SECTION — Form Tạo/Sửa cho các nghiệp vụ */}
+      <div style={{ padding: '40px 60px 20px', maxWidth: 1400 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(40,30,20,0.95)', marginBottom: 8, letterSpacing: -0.5 }}>
+          {lang === 'vi' ? '⑥ Form tạo/sửa nghiệp vụ' : '⑥ Operation create/edit forms'}
+        </div>
+        <div style={{ fontSize: 14, color: 'rgba(60,50,40,0.6)', maxWidth: 720 }}>
+          {lang === 'vi'
+            ? 'Form CRUD chi tiết cho tồn kho (nhập/chuyển/điều chỉnh), nhà cung cấp, trả hàng, khuyến mãi và sổ sách.'
+            : 'Detailed CRUD forms for inventory (receive/transfer/adjust), suppliers, returns, promotions and bookkeeping.'}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 48, padding: '24px 60px 20px', flexWrap: 'wrap', position: 'relative' }}>
+        <FullScreen tab="inventory-receive" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '23. Nhập kho' : '23. Receive stock'}/>
+        <FullScreen tab="inventory-transfer" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '24. Chuyển kho' : '24. Transfer stock'}/>
+        <FullScreen tab="inventory-adjust" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '25. Điều chỉnh tồn' : '25. Adjust stock'}/>
+        <DCPostIt top={-30} left={640} rotate={-3}>
+          {lang === 'vi'
+            ? '3 mode chia tab — quét mã / chọn SP, stepper số lượng có dấu +/-'
+            : '3 modes by tab — scan/pick, qty stepper supports +/-'}
+        </DCPostIt>
+      </div>
+
+      <div style={{ display: 'flex', gap: 48, padding: '20px 60px 20px', flexWrap: 'wrap', position: 'relative' }}>
+        <FullScreen tab="supplier-new" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '26. Hồ sơ nhà cung cấp' : '26. Supplier profile'}/>
+        <FullScreen tab="return-edit" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '27. Yêu cầu trả hàng' : '27. Return request'}/>
+        <FullScreen tab="promotion-edit" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '28. Tạo khuyến mãi' : '28. New promotion'}/>
+        <DCPostIt top={-30} left={640} rotate={2}>
+          {lang === 'vi'
+            ? 'Promo có preview banner gradient · Return có flow chọn đơn gốc → SP → lý do → ảnh'
+            : 'Promo has live banner preview · Return: pick order → items → reason → photos'}
+        </DCPostIt>
+      </div>
+
+      <div style={{ display: 'flex', gap: 48, padding: '20px 60px 80px', flexWrap: 'wrap', position: 'relative' }}>
+        <FullScreen tab="bookkeeping-edit" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '29. Ghi sổ thu/chi' : '29. Ledger entry'}/>
+        <DCPostIt top={-30} left={420} rotate={-2}>
+          {lang === 'vi'
+            ? 'Toggle Thu/Chi · số tiền lớn · 6 loại khoản · liên kết đơn hàng & ca làm việc'
+            : 'Income/Expense toggle · big amount · 6 categories · linked to orders & shifts'}
+        </DCPostIt>
+      </div>
+
+      {/* SECTION — Cài đặt chi tiết */}
+      <div style={{ padding: '40px 60px 20px', maxWidth: 1400 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(40,30,20,0.95)', marginBottom: 8, letterSpacing: -0.5 }}>
+          {lang === 'vi' ? '⑦ Cài đặt chi tiết' : '⑦ Settings detail'}
+        </div>
+        <div style={{ fontSize: 14, color: 'rgba(60,50,40,0.6)', maxWidth: 720 }}>
+          {lang === 'vi'
+            ? 'Các màn cài đặt nâng cao mở từ trang Cài đặt chính: phân quyền nhân viên, hồ sơ, cửa hàng, mẫu hóa đơn, máy quét và cấu hình POS.'
+            : 'Detail screens opened from main Settings: roles, profile, stores, receipt template, scanner and POS configuration.'}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 48, padding: '24px 60px 20px', flexWrap: 'wrap', position: 'relative' }}>
+        <FullScreen tab="set-roles" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '30. Phân quyền' : '30. Roles & permissions'}/>
+        <FullScreen tab="set-profile" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '31. Thông tin cá nhân' : '31. Profile'}/>
+        <FullScreen tab="set-stores" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '32. Cửa hàng của tôi' : '32. My stores'}/>
+        <DCPostIt top={-30} left={640} rotate={-3}>
+          {lang === 'vi'
+            ? 'Roles có ma trận quyền 3 nhóm với chip "NHẠY CẢM" · Profile có 2FA + đổi MK · Stores có ảnh storefront'
+            : 'Roles: 3-group matrix with SENSITIVE chips · Profile: 2FA + password · Stores: storefront photo'}
+        </DCPostIt>
+      </div>
+
+      <div style={{ display: 'flex', gap: 48, padding: '20px 60px 80px', flexWrap: 'wrap', position: 'relative' }}>
+        <FullScreen tab="set-receipt" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '33. Mẫu hóa đơn' : '33. Receipt template'}/>
+        <FullScreen tab="set-scanner" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '34. Máy quét mã vạch' : '34. Barcode scanner'}/>
+        <FullScreen tab="set-pos" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '35. Cấu hình POS' : '35. POS configuration'}/>
+        <DCPostIt top={-30} left={640} rotate={2}>
+          {lang === 'vi'
+            ? 'Receipt: hóa đơn nhiệt thật + 4 mẫu · Scanner: 8 format barcode + test camera · POS: bố cục 4/5/6 cột + 5 PT thanh toán'
+            : 'Receipt: real thermal receipt + 4 templates · Scanner: 8 formats + test camera · POS: 4/5/6-col layout + 5 payment methods'}
+        </DCPostIt>
+      </div>
     </DesignCanvas>
   );
 }
@@ -6310,6 +6416,13 @@ function SingleView({ variant, dark, lang, density, view }) {
     'suppliers-list': 'suppliers-list', 'returns-list': 'returns-list',
     'promotions-list': 'promotions-list', 'bookkeeping': 'bookkeeping',
     'tax': 'tax', 'ecommerce': 'ecommerce',
+    'inventory-receive': 'inventory-receive', 'inventory-transfer': 'inventory-transfer',
+    'inventory-adjust': 'inventory-adjust',
+    'supplier-edit': 'supplier-edit', 'supplier-new': 'supplier-new',
+    'return-edit': 'return-edit', 'promotion-edit': 'promotion-edit',
+    'bookkeeping-edit': 'bookkeeping-edit',
+    'set-roles': 'set-roles', 'set-profile': 'set-profile', 'set-stores': 'set-stores',
+    'set-receipt': 'set-receipt', 'set-scanner': 'set-scanner', 'set-pos': 'set-pos',
   };
   const tab = tabMap[view] || 'home';
   return (
@@ -6384,6 +6497,20 @@ function App() {
     { k: 'bookkeeping', l: '◆ Sổ sách / Bookkeeping' },
     { k: 'tax', l: '◆ Thuế / Tax' },
     { k: 'ecommerce', l: '◆ TMĐT / E-commerce' },
+    { k: 'inventory-receive', l: '✎ Nhập kho / Receive stock' },
+    { k: 'inventory-transfer', l: '✎ Chuyển kho / Transfer' },
+    { k: 'inventory-adjust', l: '✎ Điều chỉnh tồn / Adjust' },
+    { k: 'supplier-new', l: '✎ Thêm NCC / New supplier' },
+    { k: 'supplier-edit', l: '✎ Sửa NCC / Edit supplier' },
+    { k: 'return-edit', l: '✎ Tạo trả hàng / New return' },
+    { k: 'promotion-edit', l: '✎ Tạo khuyến mãi / New promo' },
+    { k: 'bookkeeping-edit', l: '✎ Ghi sổ / Ledger entry' },
+    { k: 'set-roles', l: '⚙ Phân quyền / Roles' },
+    { k: 'set-profile', l: '⚙ Thông tin cá nhân / Profile' },
+    { k: 'set-stores', l: '⚙ Cửa hàng của tôi / Stores' },
+    { k: 'set-receipt', l: '⚙ Mẫu hóa đơn / Receipt' },
+    { k: 'set-scanner', l: '⚙ Máy quét mã vạch / Scanner' },
+    { k: 'set-pos', l: '⚙ Cấu hình POS / POS config' },
   ];
 
   return (
@@ -6451,7 +6578,13 @@ function mount() {
       typeof StaffListScreen === 'undefined' || typeof OrdersListScreen === 'undefined' ||
       typeof SuppliersListScreen === 'undefined' || typeof ReturnsListScreen === 'undefined' ||
       typeof PromotionsListScreen === 'undefined' || typeof BookkeepingScreen === 'undefined' ||
-      typeof TaxScreen === 'undefined' || typeof EcommerceScreen === 'undefined') {
+      typeof TaxScreen === 'undefined' || typeof EcommerceScreen === 'undefined' ||
+      typeof InventoryEditScreen === 'undefined' || typeof SupplierEditScreen === 'undefined' ||
+      typeof ReturnEditScreen === 'undefined' || typeof PromotionEditScreen === 'undefined' ||
+      typeof BookkeepingEditScreen === 'undefined' ||
+      typeof RolesScreen === 'undefined' || typeof ProfileScreen === 'undefined' ||
+      typeof StoresScreen === 'undefined' || typeof ReceiptTemplateScreen === 'undefined' ||
+      typeof ScannerConfigScreen === 'undefined' || typeof PosConfigScreen === 'undefined') {
     setTimeout(mount, 50); return;
   }
   ReactDOM.createRoot(document.getElementById('root')).render(<App/>);

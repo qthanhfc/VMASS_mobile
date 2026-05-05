@@ -19,6 +19,9 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "permissions": [
+        "VIBRATE"
+      ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
@@ -38,7 +41,8 @@
         {
           "photosPermission": "VMASS cần truy cập thư viện ảnh để tìm sản phẩm bằng hình ảnh."
         }
-      ]
+      ],
+      "expo-audio"
     ]
   }
 }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -16,58 +16,12 @@ import { Header } from '../../components';
 import { useLanguage } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 import { Customer, Order } from '../../types';
+import { getCustomerDetail, type CustomerDetail, type CustomerOrderHistory, type CustomerTopProduct } from '../../services';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
 type RouteParams = {
-  CustomerEdit: { id?: number };
+  CustomerEdit: { id?: number; phone?: string };
 };
-
-type CustomerProfile = Customer & {
-  code: string;
-  birthday?: string;
-  tags: string[];
-};
-
-const MOCK_CUSTOMERS: Record<number, CustomerProfile> = {
-  1: {
-    id: 1,
-    code: 'KH-0892',
-    name: 'Nguyễn Thị Lan Anh',
-    phone: '0912 888 999',
-    email: 'lananh@gmail.com',
-    address: '123 Nguyễn Huệ, Q.1, TP.HCM',
-    totalSpent: 8400000,
-    orderCount: 27,
-    points: 840,
-    tier: 'VIP',
-    notes: 'Thích ship sau 18h · Thường mua cà phê G7 và Oreo',
-    createdAt: '2024-01-10',
-    birthday: '15/06/1992',
-    tags: ['VIP', 'Mua thường xuyên', 'Ưa cà phê', 'Sinh nhật T6'],
-  },
-  2: {
-    id: 2,
-    code: 'KH-0101',
-    name: 'Trần Văn Minh',
-    phone: '0912 345 678',
-    email: 'minh@gmail.com',
-    address: '45 Lê Lợi, Q3, TP.HCM',
-    totalSpent: 7200000,
-    orderCount: 11,
-    points: 720,
-    tier: 'Gold',
-    notes: 'Ưu tiên liên hệ qua Zalo',
-    createdAt: '2024-02-20',
-    birthday: '03/03/1990',
-    tags: ['Gold', 'Khách thân thiết'],
-  },
-};
-
-const MOCK_ORDERS: Order[] = [
-  { id: 101, orderNumber: 'HD-0892', customerId: 1, customerName: 'Nguyễn Thị Lan Anh', status: 'done', channel: 'pos', items: [], subtotal: 345000, discount: 0, shipping: 0, total: 345000, createdAt: '2026-04-20' },
-  { id: 102, orderNumber: 'HD-0854', customerId: 1, customerName: 'Nguyễn Thị Lan Anh', status: 'shipping', channel: 'shopee', items: [], subtotal: 1200000, discount: 0, shipping: 0, total: 1200000, createdAt: '2026-04-12' },
-  { id: 103, orderNumber: 'HD-0812', customerId: 1, customerName: 'Nguyễn Thị Lan Anh', status: 'done', channel: 'pos', items: [], subtotal: 78000, discount: 0, shipping: 0, total: 78000, createdAt: '2026-04-03' },
-];
 
 const TIERS: Customer['tier'][] = ['VIP', 'Gold', 'Silver', 'Normal'];
 
@@ -81,6 +35,10 @@ function compactMoney(value: number): string {
   return `${value}`;
 }
 
+function formatVnd(value: number): string {
+  return `${Math.round(value).toLocaleString('vi-VN')}đ`;
+}
+
 function initials(name: string): string {
   return name
     .split(' ')
@@ -90,7 +48,7 @@ function initials(name: string): string {
     .join('');
 }
 
-function channelLabel(channel: Order['channel']): string {
+function channelLabel(channel: Order['channel'] | 'pos'): string {
   const map: Record<Order['channel'], string> = {
     pos: 'POS',
     shopee: 'Shopee',
@@ -116,8 +74,38 @@ export function CustomerEditScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<RouteProp<RouteParams, 'CustomerEdit'>>();
   const editId = route.params?.id;
-  const existing = editId ? MOCK_CUSTOMERS[editId] : null;
-  const isEdit = !!existing;
+  const editPhone = route.params?.phone;
+  const hasIdentity = editId !== undefined || Boolean(editPhone);
+  const isEdit = hasIdentity;
+  const [loading, setLoading] = useState(isEdit);
+  const [detail, setDetail] = useState<CustomerDetail | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!hasIdentity) return;
+
+    (async () => {
+      try {
+        const data = await getCustomerDetail({ id: editId, phone: editPhone });
+        if (!isMounted) return;
+        setDetail(data);
+      } catch (error) {
+        if (!isMounted) return;
+        const message = error instanceof Error ? error.message : 'Không thể tải dữ liệu khách hàng.';
+        Alert.alert(t('common.error'), message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [editId, editPhone, hasIdentity, navigation, t]);
+
+  const existing = detail?.customer ?? null;
 
   const [name, setName] = useState(existing?.name ?? '');
   const [phone, setPhone] = useState(existing?.phone ?? '');
@@ -128,12 +116,21 @@ export function CustomerEditScreen() {
   const [points, setPoints] = useState(String(existing?.points ?? '0'));
   const [notes, setNotes] = useState(existing?.notes ?? '');
 
-  const customerOrders = useMemo(
-    () => (isEdit ? MOCK_ORDERS.filter((order) => order.customerId === editId).slice(0, 3) : []),
-    [editId, isEdit]
-  );
+  useEffect(() => {
+    if (!existing) return;
+    setName(existing.name || '');
+    setPhone(existing.phone || '');
+    setEmail(existing.email || '');
+    setAddress(existing.address || '');
+    setTier(existing.tier || 'Normal');
+    setPoints(String(existing.points || 0));
+    setNotes(existing.notes || '');
+  }, [existing]);
 
-  const tags = existing?.tags ?? [];
+  const customerOrders = useMemo(() => (detail?.orders || []).slice(0, 3), [detail]);
+  const topProducts = useMemo(() => (detail?.topProducts || []).slice(0, 5), [detail]);
+
+  const tags = detail?.tags ?? [];
 
   const handleSave = () => {
     if (!name.trim()) {
@@ -157,11 +154,20 @@ export function CustomerEditScreen() {
     ]);
   };
 
+  if (loading) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <Ionicons name="person-circle-outline" size={36} color={colors.textSecondary} />
+        <Text style={{ marginTop: 8, color: colors.textSecondary }}>{t('products.loading')}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <Header
         title={t(isEdit ? 'customers.customer' : 'customers.addTitle')}
-        subtitle={isEdit && existing ? t('customers.updatedAgo', { code: existing.code }) : undefined}
+        subtitle={isEdit && detail ? t('customers.updatedAgo', { code: detail.code }) : undefined}
         onBack={() => navigation.goBack()}
         rightActions={
           <View style={styles.headerActions}>
@@ -187,7 +193,7 @@ export function CustomerEditScreen() {
             <View style={styles.heroInfo}>
               <Text style={[styles.heroName, { color: '#fff' }]} numberOfLines={1}>{name || t('customers.newCustomer')}</Text>
               <Text style={[styles.heroSubline, { color: 'rgba(255,255,255,0.85)' }]}>
-                {existing?.code ?? 'KH-MOI'} · {tier === 'VIP' ? t('customers.vipCustomer') : t('customers.tierLabel', { tier })}
+                {detail?.code ?? 'KH-MOI'} · {tier === 'VIP' ? t('customers.vipCustomer') : t('customers.tierLabel', { tier })}
               </Text>
             </View>
           </View>
@@ -204,6 +210,10 @@ export function CustomerEditScreen() {
             <View style={styles.heroStatItem}>
               <Text style={[styles.heroStatLabel, { color: 'rgba(255,255,255,0.8)' }]}>{t('customers.points')}</Text>
               <Text style={[styles.heroStatValue, { color: '#fff' }]}>{points}</Text>
+            </View>
+            <View style={styles.heroStatItem}>
+              <Text style={[styles.heroStatLabel, { color: 'rgba(255,255,255,0.8)' }]}>Công nợ</Text>
+              <Text style={[styles.heroStatValue, { color: '#fff' }]}>{compactMoney(existing?.debt ?? 0)}</Text>
             </View>
           </View>
         </View>
@@ -252,7 +262,14 @@ export function CustomerEditScreen() {
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.cardHeaderRow}>
               <Text style={[styles.cardTitle, { color: colors.textSecondary }]}>{t('customers.purchaseHistory')}</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('OrdersList')}>
+              <TouchableOpacity
+                onPress={() =>
+                  navigation.navigate('OrdersList', {
+                    customerPhone: existing?.phone || phone,
+                    customerName: existing?.name || name,
+                  })
+                }
+              >
                 <Text style={styles.cardAction}>{t('manage.viewAll')} →</Text>
               </TouchableOpacity>
             </View>
@@ -266,9 +283,34 @@ export function CustomerEditScreen() {
                 >
                   <Text style={[styles.orderCode, { color: colors.text }]}>#{order.orderNumber}</Text>
                   <Text style={[styles.orderDate, { color: colors.textSecondary }]}>{shortDate(order.createdAt)}</Text>
-                  <Text style={[styles.orderItems, { color: colors.textSecondary }]}>{t('customers.productCountShort', { count: order.items.length || 1 })} · {channelLabel(order.channel)}</Text>
-                  <Text style={styles.orderAmount}>{compactMoney(order.total)}</Text>
+                  <Text style={[styles.orderItems, { color: colors.textSecondary }]}>{t('customers.productCountShort', { count: order.itemCount || 1 })} · {channelLabel(order.channel)}</Text>
+                  <Text style={[styles.orderAmount, { color: colors.text }]}>{compactMoney(order.total)}</Text>
                 </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {topProducts.length > 0 && (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.cardHeaderRow}>
+              <Text style={[styles.cardTitle, { color: colors.textSecondary }]}>Top 5 sản phẩm đã mua</Text>
+            </View>
+
+            {topProducts.map((product: CustomerTopProduct, index: number) => (
+              <View key={`${product.productId}:${product.productName}`}>
+                {index > 0 && <View style={styles.orderSeparator} />}
+                <View style={styles.topProductRow}>
+                  <View style={styles.topProductMain}>
+                    <Text style={[styles.topProductName, { color: colors.text }]} numberOfLines={1}>
+                      {index + 1}. {product.productName}
+                    </Text>
+                    <Text style={[styles.topProductMeta, { color: colors.textSecondary }]}>
+                      {product.quantity} SP · {product.orderCount} đơn · TB {formatVnd(product.avgPrice)}
+                    </Text>
+                  </View>
+                  <Text style={[styles.topProductSpent, { color: colors.primary }]}>{formatVnd(product.totalSpent)}</Text>
+                </View>
               </View>
             ))}
           </View>
@@ -357,7 +399,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: Radius.full,
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.primary,
   },
   saveBtnText: {
     ...Typography.bodySm,
@@ -584,7 +626,27 @@ const styles = StyleSheet.create({
   },
   orderAmount: {
     ...Typography.bodySm,
-    color: Colors.accent,
+    fontWeight: '800',
+  },
+  topProductRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 9,
+  },
+  topProductMain: {
+    flex: 1,
+  },
+  topProductName: {
+    ...Typography.captionMd,
+    fontWeight: '700',
+  },
+  topProductMeta: {
+    ...Typography.caption,
+    marginTop: 2,
+  },
+  topProductSpent: {
+    ...Typography.bodySm,
     fontWeight: '800',
   },
   notesInput: {

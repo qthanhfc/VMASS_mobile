@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
-import { ChipRow, ProgressBar, FAB, SearchBar } from '../../components';
+import { ChipRow, ProgressBar, SearchBar } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 
@@ -131,45 +131,49 @@ export function PromotionsListScreen() {
           <Text style={[styles.headerTitle, { color: colors.text }]}>{t('promotions.title')}</Text>
           <Text style={[styles.headerSub, { color: colors.textSecondary }]}>{headerSub}</Text>
         </View>
-        <TouchableOpacity onPress={() => nav.navigate('PromotionEdit', {})} style={styles.iconBtn}>
-          <Ionicons name="add" size={24} color={Colors.primary} />
-        </TouchableOpacity>
       </View>
-
-      <SearchBar
-        value={search}
-        onChangeText={setSearch}
-        placeholder={t('promotions.searchPlaceholder')}
-      />
-
-      <View style={styles.heroWrap}>
-        <View style={styles.heroCard}>
-          <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.9)' }]}>{t('promotions.monthlyPerformance')}</Text>
-          <View style={styles.heroStatRow}>
-            {[
-              { label: t('promotions.used'), value: String(stats.totalUsed) },
-              { label: t('promotions.saved'), value: compactMoney(stats.totalDiscount) },
-              { label: t('promotions.promoRevenue'), value: compactMoney(stats.promoRevenue) },
-            ].map(item => (
-              <View key={item.label} style={styles.heroStatCol}>
-                <Text style={[styles.heroStatValue, { color: '#fff' }]}>{item.value}</Text>
-                <Text style={[styles.heroStatLabel, { color: 'rgba(255,255,255,0.85)' }]}>{item.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      </View>
-
-      <ChipRow
-        chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))}
-        selected={filter}
-        onSelect={key => setFilter(key as PromotionFilterKey)}
-      />
 
       <FlatList
         data={filtered}
         keyExtractor={i => String(i.id)}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View>
+            <View style={styles.fullBleedRow}>
+              <SearchBar
+                value={search}
+                onChangeText={setSearch}
+                placeholder={t('promotions.searchPlaceholder')}
+              />
+            </View>
+
+            <View style={styles.heroWrap}>
+              <View style={styles.heroCard}>
+                <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.9)' }]}>{t('promotions.monthlyPerformance')}</Text>
+                <View style={styles.heroStatRow}>
+                  {[
+                    { label: t('promotions.used'), value: String(stats.totalUsed) },
+                    { label: t('promotions.saved'), value: compactMoney(stats.totalDiscount) },
+                    { label: t('promotions.promoRevenue'), value: compactMoney(stats.promoRevenue) },
+                  ].map(item => (
+                    <View key={item.label} style={styles.heroStatCol}>
+                      <Text style={[styles.heroStatValue, { color: '#fff' }]}>{item.value}</Text>
+                      <Text style={[styles.heroStatLabel, { color: 'rgba(255,255,255,0.85)' }]}>{item.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </View>
+
+            <View style={[styles.fullBleedRow, styles.filterBleedRow]}>
+              <ChipRow
+                chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))}
+                selected={filter}
+                onSelect={key => setFilter(key as PromotionFilterKey)}
+              />
+            </View>
+          </View>
+        }
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <Ionicons name="search-outline" size={24} color={Colors.textSecondary} />
@@ -216,10 +220,13 @@ export function PromotionsListScreen() {
         )}
       />
 
-      <FAB
+      <TouchableOpacity
+        style={styles.fabPill}
         onPress={() => nav.navigate('PromotionEdit', {})}
-        style={{ bottom: 20 + insets.bottom }}
-      />
+      >
+        <Ionicons name="add" size={18} color="#fff" />
+        <Text style={styles.fabPillText}>{t('promotions.createTitle')}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -239,9 +246,7 @@ const styles = StyleSheet.create({
   headerMain: { flex: 1 },
   headerTitle: { ...Typography.h3 },
   headerSub: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  iconBtn: { padding: 4 },
   heroWrap: {
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
   },
   heroCard: {
@@ -276,6 +281,12 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: 96,
+  },
+  fullBleedRow: {
+    marginHorizontal: -Spacing.lg,
+  },
+  filterBleedRow: {
+    paddingRight: Spacing.lg,
   },
   row: {
     flexDirection: 'row',
@@ -349,5 +360,26 @@ const styles = StyleSheet.create({
   emptyText: {
     ...Typography.body,
     color: Colors.textSecondary,
+  },
+  fabPill: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 6,
+    ...Shadow.md,
+  },
+  fabPillText: {
+    ...Typography.bodySm,
+    color: '#fff',
+    fontWeight: '700',
   },
 });

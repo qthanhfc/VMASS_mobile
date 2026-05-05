@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadow, Spacing, Typography, useThemeMode } from '../../theme';
 import type { RootStackParamList } from '../../navigation';
 import { ApiError, requestForgotPassword, verifyForgotPassword } from '../../services';
+import { useLanguage } from '../../i18n';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 const forgotPasswordBackgroundImage = require('../../../assets/login-balloon.jpg');
@@ -27,6 +28,7 @@ const vmassLogoImage = require('../../../assets/vmass-logo-horizontal-cropped.pn
 export function ForgotPasswordScreen() {
   const navigation = useNavigation<Navigation>();
   const { colors, isDark } = useThemeMode();
+  const { t } = useLanguage();
   const [username, setUsername] = useState('');
   const [domain, setDomain] = useState('');
   const [sent, setSent] = useState(false);
@@ -41,7 +43,7 @@ export function ForgotPasswordScreen() {
 
   const handleSubmit = async () => {
     if (!username.trim()) {
-      setErrorMessage('Vui lòng nhập tài khoản');
+      setErrorMessage(t('auth.forgot.usernameRequired'));
       return;
     }
 
@@ -53,12 +55,12 @@ export function ForgotPasswordScreen() {
     try {
       const response = await requestForgotPassword({ username, domain: domain || undefined });
       setSent(true);
-      setSuccessMessage(response.responseText || response.message || 'Vui lòng kiểm tra email để lấy mã xác thực.');
+      setSuccessMessage(response.responseText || response.message || t('auth.forgot.requestSuccess'));
     } catch (error) {
       const message =
         error instanceof ApiError || error instanceof Error
           ? error.message
-          : 'Không thể gửi yêu cầu khôi phục.';
+          : t('auth.forgot.requestError');
       setErrorMessage(message);
     } finally {
       setSubmitting(false);
@@ -67,12 +69,12 @@ export function ForgotPasswordScreen() {
 
   const handleChangePassword = async () => {
     if (!code.trim() || !password.trim() || !repassword.trim()) {
-      setErrorMessage('Nhập đầy đủ dữ liệu');
+      setErrorMessage(t('auth.forgot.missingResetData'));
       return;
     }
 
     if (password !== repassword) {
-      setErrorMessage('Mật khẩu không khớp nhau');
+      setErrorMessage(t('auth.forgot.passwordMismatch'));
       return;
     }
 
@@ -82,12 +84,12 @@ export function ForgotPasswordScreen() {
 
     try {
       const response = await verifyForgotPassword({ code, password, repassword });
-      setSuccessMessage(response.responseText || response.message || 'Đã đổi mật khẩu');
+      setSuccessMessage(response.responseText || response.message || t('auth.forgot.changeSuccess'));
     } catch (error) {
       const message =
         error instanceof ApiError || error instanceof Error
           ? error.message
-          : 'Không thể đổi mật khẩu.';
+          : t('auth.forgot.changeError');
       setErrorMessage(message);
     } finally {
       setSubmitting(false);
@@ -109,38 +111,38 @@ export function ForgotPasswordScreen() {
             <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
               <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
                 <Ionicons name="chevron-back" size={22} color="#fff" />
-                <Text style={styles.backText}>Quay lại đăng nhập</Text>
+                <Text style={styles.backText}>{t('auth.forgot.backToLogin')}</Text>
               </TouchableOpacity>
 
               <View style={styles.contentWrap}>
                 <View style={styles.hero}>
                   <Image source={vmassLogoImage} style={styles.logo} resizeMode="contain" />
-                  <Text style={styles.title}>Quên mật khẩu</Text>
+                  <Text style={styles.title}>{t('auth.forgot.title')}</Text>
                   <Text style={styles.subtitle}>
-                    Nhập thông tin tài khoản để nhận hướng dẫn đặt lại mật khẩu
+                    {t('auth.forgot.subtitle')}
                   </Text>
                 </View>
 
                 <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   {!sent ? (
                     <>
-                      <Text style={styles.label}>Tài khoản</Text>
+                      <Text style={styles.label}>{t('auth.username')}</Text>
                       <TextInput
                         value={username}
                         onChangeText={setUsername}
                         autoCapitalize="none"
-                        placeholder="Tên đăng nhập"
+                        placeholder={t('auth.usernamePlaceholder')}
                         placeholderTextColor={Colors.textSecondary}
                         style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
                       />
 
-                      <Text style={styles.label}>Tên miền cửa hàng</Text>
+                      <Text style={styles.label}>{t('auth.forgot.storeDomain')}</Text>
                       <View style={[styles.domainRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                         <TextInput
                           value={domain}
                           onChangeText={setDomain}
                           autoCapitalize="none"
-                          placeholder="tencuahang"
+                          placeholder={t('auth.storePlaceholder')}
                           placeholderTextColor={Colors.textSecondary}
                           style={[styles.domainInput, { color: colors.text }]}
                         />
@@ -157,13 +159,13 @@ export function ForgotPasswordScreen() {
                         {submitting ? (
                           <ActivityIndicator size="small" color="#fff" />
                         ) : (
-                          <Text style={styles.primaryBtnText}>Gửi yêu cầu khôi phục</Text>
+                          <Text style={styles.primaryBtnText}>{t('auth.forgot.requestSubmit')}</Text>
                         )}
                       </TouchableOpacity>
 
                       <View style={styles.footerRow}>
                         <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-                          <Text style={styles.footerLink}>Đăng nhập?</Text>
+                          <Text style={styles.footerLink}>{t('auth.forgot.loginQuestion')}</Text>
                         </TouchableOpacity>
                       </View>
                     </>
@@ -176,24 +178,24 @@ export function ForgotPasswordScreen() {
                         </View>
                       ) : null}
 
-                      <Text style={styles.label}>Mã xác thực</Text>
+                      <Text style={styles.label}>{t('auth.forgot.code')}</Text>
                       <TextInput
                         value={code}
                         onChangeText={setCode}
                         autoCapitalize="none"
-                        placeholder="Nhập mã trong email"
+                        placeholder={t('auth.forgot.codePlaceholder')}
                         placeholderTextColor={Colors.textSecondary}
                         style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
                       />
 
-                      <Text style={styles.label}>Mật khẩu mới</Text>
+                      <Text style={styles.label}>{t('auth.forgot.newPassword')}</Text>
                       <View style={[styles.passwordRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                         <TextInput
                           value={password}
                           onChangeText={setPassword}
                           secureTextEntry={hidePassword}
                           autoCapitalize="none"
-                          placeholder="Nhập mật khẩu mới"
+                          placeholder={t('auth.forgot.newPasswordPlaceholder')}
                           placeholderTextColor={Colors.textSecondary}
                           style={[styles.passwordInput, { color: colors.text }]}
                         />
@@ -209,14 +211,14 @@ export function ForgotPasswordScreen() {
                         </TouchableOpacity>
                       </View>
 
-                      <Text style={styles.label}>Nhập lại mật khẩu</Text>
+                      <Text style={styles.label}>{t('auth.forgot.repeatPassword')}</Text>
                       <View style={[styles.passwordRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                         <TextInput
                           value={repassword}
                           onChangeText={setRepassword}
                           secureTextEntry={hideRepassword}
                           autoCapitalize="none"
-                          placeholder="Nhập lại mật khẩu"
+                          placeholder={t('auth.forgot.repeatPasswordPlaceholder')}
                           placeholderTextColor={Colors.textSecondary}
                           style={[styles.passwordInput, { color: colors.text }]}
                         />
@@ -242,7 +244,7 @@ export function ForgotPasswordScreen() {
                         {submitting ? (
                           <ActivityIndicator size="small" color="#fff" />
                         ) : (
-                          <Text style={styles.primaryBtnText}>Đổi mật khẩu</Text>
+                          <Text style={styles.primaryBtnText}>{t('auth.forgot.changeSubmit')}</Text>
                         )}
                       </TouchableOpacity>
 
@@ -254,10 +256,10 @@ export function ForgotPasswordScreen() {
                             setSuccessMessage('');
                           }}
                         >
-                          <Text style={styles.footerLink}>Gửi lại mã</Text>
+                          <Text style={styles.footerLink}>{t('auth.forgot.resendCode')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-                          <Text style={styles.footerLink}>Đăng nhập ngay!</Text>
+                          <Text style={styles.footerLink}>{t('auth.forgot.loginNow')}</Text>
                         </TouchableOpacity>
                       </View>
                     </>

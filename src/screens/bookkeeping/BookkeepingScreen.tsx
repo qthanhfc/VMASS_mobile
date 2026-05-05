@@ -5,7 +5,6 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
-import { FAB } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 
@@ -128,7 +127,13 @@ export function BookkeepingScreen() {
           ))}
         </View>
       </ScrollView>
-      <FAB onPress={() => nav.navigate('BookkeepingEntry')} />
+      <TouchableOpacity
+        style={styles.fabPill}
+        onPress={() => nav.navigate('BookkeepingEntry')}
+      >
+        <Ionicons name="add" size={18} color="#fff" />
+        <Text style={styles.fabPillText}>{t('bookkeeping.entry.title')}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -256,4 +261,25 @@ const styles = StyleSheet.create({
     ...Shadow.sm,
   },
   actionLabel: { ...Typography.captionMd, marginTop: 4 },
+  fabPill: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 6,
+    ...Shadow.md,
+  },
+  fabPillText: {
+    ...Typography.bodySm,
+    color: '#fff',
+    fontWeight: '700',
+  },
 });

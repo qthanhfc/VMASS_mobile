@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,32 +7,11 @@ import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../..
 import { Header, Card } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { getCachedOrderDetail, getOrderDetail, type OrderDetail } from '../../services';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
 type Route = RouteProp<ManageStackParamList, 'OrderDetail'>;
 type TimelineStatus = 'pending' | 'paid' | 'packing' | 'shipping' | 'done';
-
-type DetailItem = {
-  productName: string;
-  qty: number;
-  price: number;
-};
-
-type DetailOrder = {
-  id: number;
-  orderNumber: string;
-  customerName: string;
-  customerPhone: string;
-  customerTier: 'VIP' | 'Gold' | 'Silver' | 'Normal';
-  status: TimelineStatus;
-  paymentLabel: string;
-  createdAt: string;
-  items: DetailItem[];
-  subtotal: number;
-  discount: number;
-  shipping: number;
-  total: number;
-};
 
 const STATUS_STEPS: TimelineStatus[] = ['pending', 'paid', 'packing', 'shipping', 'done'];
 const STEP_LABEL_KEYS: TranslationKey[] = ['orders.step.order', 'orders.step.payment', 'orders.step.packing', 'orders.step.shipping', 'orders.step.done'];
@@ -45,33 +24,14 @@ const STATUS_BADGE: Record<TimelineStatus, { labelKey: TranslationKey; bg: strin
   done: { labelKey: 'orders.status.delivered', bg: Colors.successLight, color: Colors.success },
 };
 
-const MOCK_ORDER: DetailOrder = {
-  id: 1,
-  orderNumber: 'HD0892',
-  customerName: 'Nguyễn Thị Lan Anh',
-  customerPhone: '0912 888 999',
-  customerTier: 'VIP',
-  status: 'done',
-  paymentLabel: 'Chuyển khoản MB',
-  createdAt: '20/04/2026 · 14:22',
-  items: [
-    { productName: 'Cà phê G7 (3 trong 1)', qty: 2, price: 25000 },
-    { productName: 'Bánh Oreo 137g', qty: 1, price: 28000 },
-    { productName: 'Coca-Cola lon 330ml', qty: 6, price: 12000 },
-  ],
-  subtotal: 150000,
-  discount: 15000,
-  shipping: 20000,
-  total: 155000,
-};
-
 function initials(name: string): string {
-  return name
+  const value = name
     .split(' ')
     .filter(Boolean)
     .slice(-2)
     .map((word) => word[0]?.toUpperCase())
     .join('');
+  return value || 'K';
 }
 
 function compactMoney(value: number): string {
@@ -86,18 +46,76 @@ export function OrderDetailScreen() {
   const nav = useNavigation<Nav>();
   const route = useRoute<Route>();
   const orderId = route.params?.id;
-  const order = { ...MOCK_ORDER, id: orderId };
+  const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const currentStep = STATUS_STEPS.indexOf(order.status);
-  const progressPercent = `${(currentStep / (STATUS_STEPS.length - 1)) * 100}%` as `${number}%`;
-  const statusBadge = STATUS_BADGE[order.status];
+  const loadDetail = useCallback(async () => {
+    if (!orderId) {
+      setError('Không tìm thấy mã hóa đơn.');
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const detail = await getOrderDetail(orderId);
+      setOrder(detail);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không thể tải chi tiết hóa đơn.';
+      setError(message);
+
+      const cached = await getCachedOrderDetail(orderId);
+      if (cached) {
+        setOrder(cached);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [orderId]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
+
+  const currentStep = order ? STATUS_STEPS.indexOf(order.status) : 0;
+  const progressPercent = `${(Math.max(0, currentStep) / (STATUS_STEPS.length - 1)) * 100}%` as `${number}%`;
+  const statusBadge = order ? STATUS_BADGE[order.status] : STATUS_BADGE.pending;
+  const shouldShowStatus = Boolean(order && order.channel !== 'pos');
   const money = (value: number) => `${value.toLocaleString(dateLocale)} ${t('home.currency')}`;
+  const customerMeta = order
+    ? [order.tableLabel, order.channelLabel, order.paymentLabel].filter(Boolean).join(' · ')
+    : '';
+
+  if (loading && !order) {
+    return (
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (!order) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <Header title={t('orders.title')} onBack={() => nav.goBack()} />
+        <View style={styles.emptyWrap}>
+          <Ionicons name="receipt-outline" size={44} color={colors.border} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{error || 'Không tìm thấy hóa đơn.'}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={loadDetail}>
+            <Text style={styles.retryText}>Tải lại</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Header
         title={`#${order.orderNumber}`}
-        subtitle={order.createdAt}
+        subtitle={order.fromCache ? `${order.createdAt} · dữ liệu đã lưu` : order.createdAt}
         onBack={() => nav.goBack()}
         rightActions={
           <View style={styles.headerActions}>
@@ -112,35 +130,37 @@ export function OrderDetailScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Card style={styles.card}>
-          <View style={styles.cardTopRow}>
-            <Text style={styles.cardTitle}>{t('orders.detail.statusTitle')}</Text>
-            <View style={[styles.statusBadge, { backgroundColor: statusBadge.bg }]}>
-              <Text style={[styles.statusBadgeText, { color: statusBadge.color }]}>● {t(statusBadge.labelKey)}</Text>
+        {shouldShowStatus ? (
+          <Card style={styles.card}>
+            <View style={styles.cardTopRow}>
+              <Text style={styles.cardTitle}>{t('orders.detail.statusTitle')}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: statusBadge.bg }]}>
+                <Text style={[styles.statusBadgeText, { color: statusBadge.color }]}>● {t(statusBadge.labelKey)}</Text>
+              </View>
             </View>
-          </View>
 
-          <View style={styles.timelineWrap}>
-            <View style={styles.timelineBaseLine} />
-            <View style={[styles.timelineActiveLine, { width: progressPercent }]} />
+            <View style={styles.timelineWrap}>
+              <View style={styles.timelineBaseLine} />
+              <View style={[styles.timelineActiveLine, { width: progressPercent }]} />
 
-            <View style={styles.timelineStepsRow}>
-              {STEP_LABEL_KEYS.map((labelKey, index) => {
-                const active = index <= currentStep;
-                return (
-                  <View key={labelKey} style={styles.timelineStep}>
-                    <View style={[styles.timelineDot, active && styles.timelineDotActive]}>
-                      <Text style={[styles.timelineDotText, active && styles.timelineDotTextActive]}>
-                        {active ? '✓' : `${index + 1}`}
-                      </Text>
+              <View style={styles.timelineStepsRow}>
+                {STEP_LABEL_KEYS.map((labelKey, index) => {
+                  const active = index <= currentStep;
+                  return (
+                    <View key={labelKey} style={styles.timelineStep}>
+                      <View style={[styles.timelineDot, active && styles.timelineDotActive]}>
+                        <Text style={[styles.timelineDotText, active && styles.timelineDotTextActive]}>
+                          {active ? '✓' : `${index + 1}`}
+                        </Text>
+                      </View>
+                      <Text style={styles.timelineLabel}>{t(labelKey)}</Text>
                     </View>
-                    <Text style={styles.timelineLabel}>{t(labelKey)}</Text>
-                  </View>
-                );
-              })}
+                  );
+                })}
+              </View>
             </View>
-          </View>
-        </Card>
+          </Card>
+        ) : null}
 
         <Card style={styles.card}>
           <View style={styles.customerRow}>
@@ -150,7 +170,7 @@ export function OrderDetailScreen() {
 
             <View style={styles.customerInfo}>
               <Text style={styles.customerName}>{order.customerName}</Text>
-              <Text style={styles.customerMeta}>{order.customerPhone} · {order.customerTier}</Text>
+              <Text style={styles.customerMeta}>{customerMeta || order.customerPhone || order.channelLabel}</Text>
             </View>
 
             <TouchableOpacity style={styles.messageBtn}>
@@ -189,8 +209,20 @@ export function OrderDetailScreen() {
               <Text style={styles.sumValue}>{money(order.subtotal)}</Text>
             </View>
             <View style={styles.sumRow}>
-              <Text style={styles.sumLabel}>{t('orders.detail.discount')}</Text>
-              <Text style={[styles.sumValue, styles.sumValueDiscount]}>− {money(order.discount)}</Text>
+              <Text style={styles.sumLabel}>
+                {t('orders.detail.discount')}{order.discountLabel ? ` (${order.discountLabel})` : ''}
+              </Text>
+              <Text style={[styles.sumValue, order.discount > 0 && styles.sumValueDiscount]}>
+                {order.discount > 0 ? `- ${money(order.discount)}` : money(0)}
+              </Text>
+            </View>
+            <View style={styles.sumRow}>
+              <Text style={styles.sumLabel}>Thuế{order.taxFeeLabel ? ` (${order.taxFeeLabel})` : ''}</Text>
+              <Text style={styles.sumValue}>{money(order.taxFee)}</Text>
+            </View>
+            <View style={styles.sumRow}>
+              <Text style={styles.sumLabel}>Phí khác{order.feeOtherLabel ? ` (${order.feeOtherLabel})` : ''}</Text>
+              <Text style={styles.sumValue}>{money(order.feeOther)}</Text>
             </View>
             <View style={styles.sumRow}>
               <Text style={styles.sumLabel}>{t('orders.detail.shippingFee')}</Text>
@@ -204,7 +236,7 @@ export function OrderDetailScreen() {
             <Text style={styles.totalLabel}>{t('orders.detail.total')}</Text>
             <Text style={styles.totalValue}>{money(order.total)}</Text>
           </View>
-          <Text style={styles.paymentText}>💳 {order.paymentLabel}</Text>
+          <Text style={styles.paymentText}>Thanh toán: {order.paymentLabel}</Text>
         </Card>
       </ScrollView>
     </View>
@@ -225,6 +257,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  centerContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   content: {
     paddingHorizontal: Spacing.lg,
@@ -484,5 +520,28 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'right',
     marginTop: 4,
+  },
+  emptyWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+    gap: 10,
+  },
+  emptyText: {
+    ...Typography.bodySm,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  retryBtn: {
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  retryText: {
+    ...Typography.bodySm,
+    color: '#fff',
+    fontWeight: '700',
   },
 });

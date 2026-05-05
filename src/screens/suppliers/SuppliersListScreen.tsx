@@ -11,7 +11,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
-import { ChipRow, SearchBar, FAB } from '../../components';
+import { ChipRow, SearchBar } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 
@@ -191,33 +191,37 @@ export function SuppliersListScreen() {
             {t('suppliers.subtitle', { count: MOCK_SUPPLIERS.length, debt: formatMoneyShort(totalDebt) })}
           </Text>
         </View>
-        <TouchableOpacity onPress={() => nav.navigate('SupplierEdit', {})} style={styles.iconBtn}>
-          <Ionicons name="add" size={24} color={Colors.primary} />
-        </TouchableOpacity>
       </View>
-
-      <SearchBar value={search} onChangeText={setSearch} placeholder={t('suppliers.searchPlaceholder')} />
-
-      <View style={styles.statsRow}>
-        {[
-          { label: t('suppliers.stat.total'), value: String(MOCK_SUPPLIERS.length), color: colors.text },
-          { label: t('suppliers.stat.active'), value: String(activeCount), color: Colors.success },
-          { label: t('suppliers.stat.debt'), value: formatMoneyShort(totalDebt), color: Colors.accent },
-          { label: t('suppliers.stat.purchaseOrders'), value: String(totalOrders), color: Colors.primary },
-        ].map(stat => (
-          <View key={stat.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statValue, { color: stat.color }]}>{stat.value}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{stat.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      <ChipRow chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))} selected={filter} onSelect={key => setFilter(key as FilterKey)} />
 
       <FlatList
         data={filtered}
         keyExtractor={item => String(item.id)}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View>
+            <View style={styles.fullBleedRow}>
+              <SearchBar value={search} onChangeText={setSearch} placeholder={t('suppliers.searchPlaceholder')} />
+            </View>
+
+            <View style={styles.statsRow}>
+              {[
+                { label: t('suppliers.stat.total'), value: String(MOCK_SUPPLIERS.length), color: colors.text },
+                { label: t('suppliers.stat.active'), value: String(activeCount), color: Colors.success },
+                { label: t('suppliers.stat.debt'), value: formatMoneyShort(totalDebt), color: Colors.accent },
+                { label: t('suppliers.stat.purchaseOrders'), value: String(totalOrders), color: Colors.primary },
+              ].map(stat => (
+                <View key={stat.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={[styles.statValue, { color: stat.color }]}>{stat.value}</Text>
+                  <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{stat.label}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={[styles.fullBleedRow, styles.filterBleedRow]}>
+              <ChipRow chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))} selected={filter} onSelect={key => setFilter(key as FilterKey)} />
+            </View>
+          </View>
+        }
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <Ionicons name="search-outline" size={24} color={Colors.textSecondary} />
@@ -264,10 +268,13 @@ export function SuppliersListScreen() {
         )}
       />
 
-      <FAB
+      <TouchableOpacity
+        style={styles.fabPill}
         onPress={() => nav.navigate('SupplierEdit', {})}
-        style={{ bottom: 20 + insets.bottom }}
-      />
+      >
+        <Ionicons name="add" size={18} color="#fff" />
+        <Text style={styles.fabPillText}>{t('suppliers.addTitle')}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -306,7 +313,6 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
     gap: 8,
   },
@@ -334,6 +340,12 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: 96,
+  },
+  fullBleedRow: {
+    marginHorizontal: -Spacing.lg,
+  },
+  filterBleedRow: {
+    paddingRight: Spacing.lg,
   },
   row: {
     flexDirection: 'row',
@@ -407,5 +419,26 @@ const styles = StyleSheet.create({
   emptyText: {
     ...Typography.body,
     color: Colors.textSecondary,
+  },
+  fabPill: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 6,
+    ...Shadow.md,
+  },
+  fabPillText: {
+    ...Typography.bodySm,
+    color: '#fff',
+    fontWeight: '700',
   },
 });

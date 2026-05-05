@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadow, Spacing, Typography, useThemeMode } from '../../theme';
 import type { RootStackParamList } from '../../navigation';
 import { ApiError, signIn } from '../../services';
+import { useLanguage } from '../../i18n';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 const loginBackgroundImage = require('../../../assets/login-balloon.jpg');
@@ -28,6 +29,7 @@ const vmassLogoImage = require('../../../assets/vmass-logo-horizontal-cropped.pn
 export function LoginScreen() {
   const navigation = useNavigation<Navigation>();
   const { colors, isDark } = useThemeMode();
+  const { t } = useLanguage();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [storeDomain, setStoreDomain] = useState('');
@@ -38,7 +40,7 @@ export function LoginScreen() {
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
-      setErrorMessage('Vui lòng nhập tài khoản và mật khẩu');
+      setErrorMessage(t('auth.login.missingCredentials'));
       return;
     }
 
@@ -57,7 +59,7 @@ export function LoginScreen() {
       const message =
         error instanceof ApiError || error instanceof Error
           ? error.message
-          : 'Đăng nhập thất bại. Vui lòng thử lại.';
+          : t('auth.login.failure');
       setErrorMessage(message);
     } finally {
       setSubmitting(false);
@@ -80,28 +82,28 @@ export function LoginScreen() {
               <View style={styles.contentWrap}>
                 <View style={styles.hero}>
                   <Image source={vmassLogoImage} style={styles.logo} resizeMode="contain" />
-                  <Text style={styles.title}>Đăng nhập VMASS Mobile</Text>
-                  <Text style={styles.subtitle}>Quản lý bán hàng mọi lúc trên điện thoại của bạn</Text>
+                  <Text style={styles.title}>{t('auth.login.title')}</Text>
+                  <Text style={styles.subtitle}>{t('auth.login.subtitle')}</Text>
                 </View>
 
                 <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <Text style={styles.label}>Tài khoản</Text>
+                  <Text style={styles.label}>{t('auth.username')}</Text>
                   <TextInput
                     value={username}
                     onChangeText={setUsername}
                     autoCapitalize="none"
-                    placeholder="Tên đăng nhập"
+                    placeholder={t('auth.usernamePlaceholder')}
                     placeholderTextColor={Colors.textSecondary}
                     style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
                   />
 
-                  <Text style={styles.label}>Mật khẩu</Text>
+                  <Text style={styles.label}>{t('auth.password')}</Text>
                   <View style={[styles.passwordRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <TextInput
                       value={password}
                       onChangeText={setPassword}
                       secureTextEntry={hidePassword}
-                      placeholder="Nhập mật khẩu"
+                      placeholder={t('auth.passwordPlaceholder')}
                       placeholderTextColor={Colors.textSecondary}
                       style={[styles.passwordInput, { color: colors.text }]}
                     />
@@ -115,19 +117,19 @@ export function LoginScreen() {
                   </View>
 
                   <Text style={styles.hintText}>
-                    Chủ cửa hàng: chỉ cần tài khoản + mật khẩu.
+                    {t('auth.login.ownerHint')}
                   </Text>
                   <Text style={styles.hintText}>
-                    Nhân viên: nhập thêm tên cửa hàng bên dưới.
+                    {t('auth.login.staffHint')}
                   </Text>
 
-                  <Text style={styles.label}>Tên cửa hàng (tùy chọn)</Text>
+                  <Text style={styles.label}>{t('auth.storeNameOptional')}</Text>
                   <View style={[styles.storeRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <TextInput
                       value={storeDomain}
                       onChangeText={setStoreDomain}
                       autoCapitalize="none"
-                      placeholder="tencuahang"
+                      placeholder={t('auth.storePlaceholder')}
                       placeholderTextColor={Colors.textSecondary}
                       style={[styles.storeInput, { color: colors.text }]}
                     />
@@ -139,11 +141,11 @@ export function LoginScreen() {
                       <View style={[styles.checkbox, remember && styles.checkboxActive]}>
                         {remember ? <Ionicons name="checkmark" size={12} color="#fff" /> : null}
                       </View>
-                      <Text style={styles.inlineText}>Ghi nhớ đăng nhập</Text>
+                      <Text style={styles.inlineText}>{t('auth.login.remember')}</Text>
                     </Pressable>
 
                     <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-                      <Text style={styles.link}>Quên mật khẩu?</Text>
+                      <Text style={styles.link}>{t('auth.login.forgotPassword')}</Text>
                     </TouchableOpacity>
                   </View>
 
@@ -157,14 +159,14 @@ export function LoginScreen() {
                     {submitting ? (
                       <ActivityIndicator size="small" color="#fff" />
                     ) : (
-                      <Text style={styles.primaryBtnText}>Đăng nhập</Text>
+                      <Text style={styles.primaryBtnText}>{t('auth.login.submit')}</Text>
                     )}
                   </TouchableOpacity>
 
                   <View style={styles.footerRow}>
-                    <Text style={styles.footerText}>Chưa có tài khoản?</Text>
+                    <Text style={styles.footerText}>{t('auth.login.noAccount')}</Text>
                     <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-                      <Text style={styles.footerLink}>Đăng ký ngay</Text>
+                      <Text style={styles.footerLink}>{t('auth.login.registerNow')}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

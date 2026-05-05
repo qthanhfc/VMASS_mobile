@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Linking, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { ActivityIndicator, Image, Linking, ScrollView, View, Text, TouchableOpacity, StyleSheet, Vibration } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
 import { BarcodeScanningResult, BarcodeType, CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { WebView } from 'react-native-webview';
 import { products as productsApi } from '../../api/client';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ScanActionItem } from '../../navigation';
-import { Colors, Typography, Radius, Spacing, useThemeMode } from '../../theme';
+import { Colors, Typography, Radius, Spacing } from '../../theme';
 
 type ScanMode = 'Barcode' | 'QR Code' | 'Hình ảnh';
 type ScanStatus = 'pending' | 'processed';
@@ -48,11 +50,65 @@ const BARCODE_TYPES: BarcodeType[] = [
 ];
 const SCANNABLE_TYPES: BarcodeType[] = ['qr', ...BARCODE_TYPES];
 const INITIAL_RECENT_SCANS: RecentScan[] = [];
+const SCAN_HISTORY_STORAGE_KEY = '@vmass/scan-history/v1';
+const SCAN_BEEP_ASSET = require('../../../assets/sounds/scan-beep.wav');
+const SCAN_VIBRATION_MS = 35;
+const QR_DARK = {
+  background: '#0b0f14',
+  surface: '#151a21',
+  surfaceAlt: '#1d2633',
+  border: 'rgba(255,255,255,0.12)',
+  text: '#f8fafc',
+  textSecondary: 'rgba(248,250,252,0.58)',
+  primaryLight: 'rgba(0,142,204,0.18)',
+};
 
 const getStartOfDay = (timestamp: number) => {
   const date = new Date(timestamp);
   date.setHours(0, 0, 0, 0);
   return date.getTime();
+};
+
+const isScanStatus = (value: unknown): value is ScanStatus => value === 'pending' || value === 'processed';
+
+const isStoredRecentScan = (value: unknown): value is RecentScan => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const scan = value as Partial<RecentScan>;
+  return (
+    typeof scan.id === 'number' &&
+    Number.isFinite(scan.id) &&
+    typeof scan.text === 'string' &&
+    typeof scan.scannedAt === 'number' &&
+    Number.isFinite(scan.scannedAt) &&
+    typeof scan.type === 'string' &&
+    typeof scan.qty === 'number' &&
+    Number.isFinite(scan.qty) &&
+    isScanStatus(scan.status)
+  );
+};
+
+const pruneScansToToday = (scans: RecentScan[], now = Date.now()) => {
+  const startOfDay = getStartOfDay(now);
+  return scans
+    .filter(scan => scan.scannedAt >= startOfDay)
+    .sort((a, b) => b.scannedAt - a.scannedAt);
+};
+
+const parseStoredScanHistory = (rawValue: string | null, now = Date.now()) => {
+  if (!rawValue) {
+    return INITIAL_RECENT_SCANS;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    const scans = Array.isArray(parsed?.scans) ? parsed.scans : Array.isArray(parsed) ? parsed : [];
+    return pruneScansToToday(scans.filter(isStoredRecentScan), now);
+  } catch {
+    return INITIAL_RECENT_SCANS;
+  }
 };
 
 const URL_PATTERN = /^(https?:\/\/|www\.)\S+$/i;
@@ -143,7 +199,6 @@ const formatScanTime = (
 };
 
 export function QrScanScreen() {
-  const { colors } = useThemeMode();
   const { dateLocale, t } = useLanguage();
   const insets = useSafeAreaInsets();
   const nav = useNavigation<any>();
@@ -164,13 +219,61 @@ export function QrScanScreen() {
   const lastScanRef = useRef<LastScan | null>(null);
   const scanIdRef = useRef(INITIAL_RECENT_SCANS.length);
   const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scanHistoryLoadedRef = useRef(false);
+  const scanBeepPlayer = useAudioPlayer(SCAN_BEEP_ASSET);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadScanHistory = async () => {
+      const now = Date.now();
+
+      try {
+        const rawHistory = await AsyncStorage.getItem(SCAN_HISTORY_STORAGE_KEY);
+        const storedScans = parseStoredScanHistory(rawHistory, now);
+
+        if (!isMounted) {
+          return;
+        }
+
+        scanIdRef.current = storedScans.reduce((maxId, scan) => Math.max(maxId, scan.id), 0);
+        setCurrentTime(now);
+        setRecentScans(storedScans);
+      } finally {
+        if (isMounted) {
+          scanHistoryLoadedRef.current = true;
+        }
+      }
+    };
+
+    loadScanHistory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!scanHistoryLoadedRef.current) {
+      return;
+    }
+
+    const scansForToday = pruneScansToToday(recentScans);
+    AsyncStorage.setItem(
+      SCAN_HISTORY_STORAGE_KEY,
+      JSON.stringify({ version: 1, updatedAt: Date.now(), scans: scansForToday }),
+    ).catch(() => undefined);
+  }, [recentScans]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
 
       setCurrentTime(now);
-      setRecentScans(current => current.filter(scan => scan.scannedAt >= getStartOfDay(now)));
+      setRecentScans(current => {
+        const next = pruneScansToToday(current, now);
+        return next.length === current.length ? current : next;
+      });
     }, 30000);
 
     return () => {
@@ -181,6 +284,29 @@ export function QrScanScreen() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    scanBeepPlayer.volume = 0.8;
+    setAudioModeAsync({
+      playsInSilentMode: true,
+    }).catch(() => {
+      // Audio mode is best-effort; vibration fallback still confirms scans.
+    });
+  }, [scanBeepPlayer]);
+
+  const playScanBeep = () => {
+    Vibration.vibrate(SCAN_VIBRATION_MS);
+
+    if (!scanBeepPlayer.isLoaded) {
+      return;
+    }
+
+    scanBeepPlayer.seekTo(0)
+      .then(() => {
+        scanBeepPlayer.play();
+      })
+      .catch(() => undefined);
+  };
 
   useEffect(() => {
     if (imageSearchStatus === 'idle') {
@@ -210,15 +336,12 @@ export function QrScanScreen() {
     }),
     [currentTime, mode, recentScans],
   );
-  const pendingVisibleScans = useMemo(
-    () => visibleRecentScans.filter(scan => scan.status === 'pending'),
-    [visibleRecentScans],
-  );
   const selectedScans = useMemo(
     () => visibleRecentScans.filter(scan => selectedScanIds.includes(scan.id) && scan.status === 'pending'),
     [selectedScanIds, visibleRecentScans],
   );
-  const actionableScans = selectedScans.length > 0 ? selectedScans : pendingVisibleScans;
+  const actionableScans = selectedScans;
+  const hasSelectedScans = selectedScans.length > 0;
   const actionableQty = actionableScans.reduce((sum, scan) => sum + scan.qty, 0);
   const scannerPaused = Boolean(webViewUrl || paymentQrInfo);
   const recentScopeLabel = mode === 'QR Code' ? 'QR' : mode === 'Hình ảnh' ? t('scan.imageScope') : t('scan.barcodeScope');
@@ -273,6 +396,7 @@ export function QrScanScreen() {
       return [nextResult, ...recent];
     });
     showTransientResult();
+    playScanBeep();
   };
 
   const toggleScanSelection = (id: number) => {
@@ -524,7 +648,7 @@ export function QrScanScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Dark header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => (nav.canGoBack?.() ? nav.goBack() : nav.navigate('Manage'))} style={styles.backBtn}>
@@ -600,10 +724,10 @@ export function QrScanScreen() {
       </View>
 
       {/* Recent scans */}
-      <View style={[styles.recentSection, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+      <View style={styles.recentSection}>
         <View style={styles.recentHeader}>
-          <Text style={[styles.recentTitle, { color: colors.textSecondary }]}>{t('scan.historyToday')}</Text>
-          <Text style={[styles.recentCount, { color: colors.textSecondary }]}>
+          <Text style={styles.recentTitle}>{t('scan.historyToday')}</Text>
+          <Text style={styles.recentCount}>
             {t('scan.historySummary', { count: visibleRecentScans.length, scope: recentScopeLabel, qty: actionableQty })}
           </Text>
         </View>
@@ -623,11 +747,13 @@ export function QrScanScreen() {
               <TouchableOpacity
                 key={action.key}
                 onPress={() => handleScanAction(action.key as 'sale' | 'import' | 'transfer' | 'audit')}
-                disabled={actionableScans.length === 0}
-                style={[styles.scanActionBtn, actionableScans.length === 0 && styles.scanActionBtnDisabled]}
+                disabled={!hasSelectedScans}
+                style={[styles.scanActionBtn, !hasSelectedScans && styles.scanActionBtnDisabled]}
               >
-                <Ionicons name={action.icon} size={15} color="#fff" />
-                <Text style={styles.scanActionText}>{t(action.labelKey)}</Text>
+                <Ionicons name={action.icon} size={15} color={hasSelectedScans ? '#fff' : QR_DARK.textSecondary} />
+                <Text style={[styles.scanActionText, !hasSelectedScans && styles.scanActionTextDisabled]}>
+                  {t(action.labelKey)}
+                </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -640,19 +766,18 @@ export function QrScanScreen() {
                 onPress={() => handleRecentScanPress(s)}
                 style={[
                   styles.recentRow,
-                  { borderBottomColor: colors.border },
-                  mode !== 'QR Code' && selectedScanIds.includes(s.id) && { backgroundColor: colors.primaryLight },
+                  mode !== 'QR Code' && selectedScanIds.includes(s.id) && styles.recentRowSelected,
                   s.status === 'processed' && styles.recentRowProcessed,
                 ]}
               >
                 <Ionicons
                   name={mode !== 'QR Code' && selectedScanIds.includes(s.id) ? 'checkmark-circle' : s.type === 'qr' ? 'qr-code-outline' : s.type === 'image' ? 'image-outline' : 'barcode-outline'}
                   size={20}
-                  color={mode !== 'QR Code' && selectedScanIds.includes(s.id) ? colors.primary : colors.textSecondary}
+                  color={mode !== 'QR Code' && selectedScanIds.includes(s.id) ? Colors.primary : QR_DARK.textSecondary}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={[styles.recentText, { color: colors.text }]}>{s.text}</Text>
-                  <Text style={[styles.recentTime, { color: colors.textSecondary }]}>
+                  <Text numberOfLines={1} style={styles.recentText}>{s.text}</Text>
+                  <Text style={styles.recentTime}>
                     {mode === 'QR Code'
                       ? `${parsePaymentQr(s.text) ? t('scan.qrPaymentType') : isWebUrl(s.text) ? t('scan.qrWebType') : t('scan.qrContentType')} · ${formatScanTime(s.scannedAt, currentTime, t)}`
                       : t('scan.qtyStatus', {
@@ -662,11 +787,11 @@ export function QrScanScreen() {
                         })}
                   </Text>
                 </View>
-                <View style={[styles.qtyPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <View style={styles.qtyPill}>
                   {mode === 'QR Code' ? (
-                    <Ionicons name="open-outline" size={15} color={colors.text} />
+                    <Ionicons name="open-outline" size={15} color={QR_DARK.text} />
                   ) : (
-                    <Text style={[styles.qtyPillText, { color: colors.text }]}>x{s.qty}</Text>
+                    <Text style={styles.qtyPillText}>x{s.qty}</Text>
                   )}
                 </View>
               </TouchableOpacity>
@@ -674,9 +799,9 @@ export function QrScanScreen() {
           </ScrollView>
         ) : (
           <View style={styles.recentEmpty}>
-            <Ionicons name="scan-outline" size={22} color={colors.textSecondary} />
-            <Text style={[styles.recentEmptyText, { color: colors.textSecondary }]}>{t('scan.emptyToday', { scope: recentScopeLabel })}</Text>
-            <Text style={[styles.recentEmptyHint, { color: colors.textSecondary }]}>{t('scan.emptyHint')}</Text>
+            <Ionicons name="scan-outline" size={22} color={QR_DARK.textSecondary} />
+            <Text style={styles.recentEmptyText}>{t('scan.emptyToday', { scope: recentScopeLabel })}</Text>
+            <Text style={styles.recentEmptyHint}>{t('scan.emptyHint')}</Text>
           </View>
         )}
       </View>
@@ -703,13 +828,13 @@ const CORNER_SIZE = 22;
 const CORNER_W = 3;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#111' },
+  container: { flex: 1, backgroundColor: QR_DARK.background },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: 12 },
   backBtn: { marginRight: 8, padding: 4 },
   headerTitle: { ...Typography.h3, color: '#fff', flex: 1 },
   iconBtn: { padding: 4 },
   cameraArea: { flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  cameraFallback: { ...StyleSheet.absoluteFillObject, backgroundColor: '#222', alignItems: 'center', justifyContent: 'center', padding: Spacing.xl },
+  cameraFallback: { ...StyleSheet.absoluteFillObject, backgroundColor: QR_DARK.surfaceAlt, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl },
   cameraHint: { ...Typography.caption, color: 'rgba(255,255,255,0.3)', marginTop: 8 },
   permissionTitle: { ...Typography.h3, color: '#fff', marginTop: 12, textAlign: 'center' },
   permissionText: { ...Typography.bodyMd, color: 'rgba(255,255,255,0.65)', marginTop: 8, textAlign: 'center' },
@@ -717,7 +842,7 @@ const styles = StyleSheet.create({
   permissionBtnText: { ...Typography.label, color: '#fff' },
   imageSearchPanel: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#181818',
+    backgroundColor: QR_DARK.surface,
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.xl,
@@ -777,7 +902,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: '#202020',
+    backgroundColor: QR_DARK.surfaceAlt,
     padding: Spacing.md,
   },
   qrActionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -801,7 +926,7 @@ const styles = StyleSheet.create({
   qrActionPrimaryText: { ...Typography.captionMd, color: '#fff' },
   webOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#111',
+    backgroundColor: QR_DARK.background,
     zIndex: 20,
     elevation: 20,
   },
@@ -827,10 +952,10 @@ const styles = StyleSheet.create({
   modeBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: Radius.full },
   modeBtnActive: { backgroundColor: Colors.primary },
   modeLabel: { ...Typography.captionMd, color: 'rgba(255,255,255,0.6)' },
-  recentSection: { backgroundColor: '#1a1a1a', borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, padding: Spacing.lg, maxHeight: 320 },
+  recentSection: { backgroundColor: QR_DARK.surface, borderTopColor: QR_DARK.border, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, padding: Spacing.lg, maxHeight: 320 },
   recentHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  recentTitle: { ...Typography.label, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.6 },
-  recentCount: { ...Typography.captionMd, color: 'rgba(255,255,255,0.42)' },
+  recentTitle: { ...Typography.label, color: QR_DARK.textSecondary, letterSpacing: 0.6 },
+  recentCount: { ...Typography.captionMd, color: QR_DARK.textSecondary },
   scanActionsScroll: { marginBottom: 10, maxHeight: 34 },
   scanActions: { flexDirection: 'row', gap: 6, paddingRight: Spacing.md },
   scanActionBtn: {
@@ -843,18 +968,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     flexShrink: 0,
+    borderWidth: 1,
+    borderColor: Colors.primary,
   },
-  scanActionBtnDisabled: { opacity: 0.4 },
+  scanActionBtnDisabled: {
+    backgroundColor: QR_DARK.surfaceAlt,
+    borderColor: QR_DARK.border,
+  },
   scanActionText: { ...Typography.label, color: '#fff', letterSpacing: 0 },
+  scanActionTextDisabled: { color: QR_DARK.textSecondary },
   recentList: { maxHeight: 196 },
-  recentRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
-  recentRowSelected: { backgroundColor: 'rgba(0,142,204,0.14)' },
+  recentRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: QR_DARK.border },
+  recentRowSelected: { backgroundColor: QR_DARK.primaryLight },
   recentRowProcessed: { opacity: 0.55 },
-  recentText: { ...Typography.bodyMd, color: '#fff' },
-  recentTime: { ...Typography.caption, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
-  qtyPill: { minWidth: 34, height: 24, borderRadius: Radius.full, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
-  qtyPillText: { ...Typography.captionMd, color: '#fff' },
+  recentText: { ...Typography.bodyMd, color: QR_DARK.text },
+  recentTime: { ...Typography.caption, color: QR_DARK.textSecondary, marginTop: 2 },
+  qtyPill: { minWidth: 34, height: 24, borderRadius: Radius.full, backgroundColor: QR_DARK.surfaceAlt, borderColor: QR_DARK.border, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  qtyPillText: { ...Typography.captionMd, color: QR_DARK.text },
   recentEmpty: { minHeight: 86, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.md },
-  recentEmptyText: { ...Typography.captionMd, color: 'rgba(255,255,255,0.52)', marginTop: 6, textAlign: 'center' },
-  recentEmptyHint: { ...Typography.caption, color: 'rgba(255,255,255,0.34)', marginTop: 4, textAlign: 'center' },
+  recentEmptyText: { ...Typography.captionMd, color: QR_DARK.textSecondary, marginTop: 6, textAlign: 'center' },
+  recentEmptyHint: { ...Typography.caption, color: QR_DARK.textSecondary, marginTop: 4, textAlign: 'center' },
 });

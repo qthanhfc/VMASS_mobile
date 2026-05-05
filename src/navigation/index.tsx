@@ -32,11 +32,12 @@ export type ManageStackParamList = {
   ProductCreate: undefined;
   ProductEdit: { id?: number };
   CustomersList: undefined;
-  CustomerEdit: { id?: number };
-  OrdersList: undefined;
-  OrderDetail: { id: number };
+  CustomerEdit: { id?: number; phone?: string };
+  OrdersList: { customerPhone?: string; customerName?: string } | undefined;
+  OrderDetail: { id: number | string };
   InventoryMain: undefined;
   InventoryEdit: { mode?: 'import' | 'export' | 'transfer' | 'audit'; scanItems?: ScanActionItem[] } | undefined;
+  InventoryStockForm: { stockId?: number } | undefined;
   StaffList: undefined;
   StaffEdit: { id?: number };
   SuppliersList: undefined;
@@ -67,6 +68,10 @@ export type SettingsStackParamList = {
   SettingsMain: undefined;
   UpgradeAccount: undefined;
   ProfileSettings: undefined;
+  PosSettings: undefined;
+  PrintSettings: undefined;
+  RoleSettings: undefined;
+  StaffAccountSettings: undefined;
   ChangePassword: undefined;
   DocsWebView: undefined;
   Feedback: undefined;
@@ -81,6 +86,10 @@ import { MessagesDetailScreen } from '../screens/messages/MessagesDetailScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
 import { UpgradeAccountScreen } from '../screens/settings/UpgradeAccountScreen';
 import { ProfileSettingsScreen } from '../screens/settings/ProfileSettingsScreen';
+import { PosSettingsScreen } from '../screens/settings/PosSettingsScreen';
+import { PrintSettingsScreen } from '../screens/settings/PrintSettingsScreen';
+import { RoleSettingsScreen } from '../screens/settings/RoleSettingsScreen';
+import { StaffAccountScreen } from '../screens/settings/StaffAccountScreen';
 import { ChangePasswordScreen } from '../screens/settings/ChangePasswordScreen';
 import { DocsWebViewScreen } from '../screens/settings/DocsWebViewScreen';
 import { FeedbackScreen } from '../screens/settings/FeedbackScreen';
@@ -92,6 +101,7 @@ import { OrdersListScreen } from '../screens/orders/OrdersListScreen';
 import { OrderDetailScreen } from '../screens/orders/OrderDetailScreen';
 import { InventoryScreen } from '../screens/inventory/InventoryScreen';
 import { InventoryEditScreen } from '../screens/inventory/InventoryEditScreen';
+import { InventoryStockFormScreen } from '../screens/inventory/InventoryStockFormScreen';
 import { StaffListScreen } from '../screens/staff/StaffListScreen';
 import { StaffEditScreen } from '../screens/staff/StaffEditScreen';
 import { SuppliersListScreen } from '../screens/suppliers/SuppliersListScreen';
@@ -135,6 +145,7 @@ function ManageStackNavigator() {
       <ManageStack.Screen name="OrderDetail" component={OrderDetailScreen} />
       <ManageStack.Screen name="InventoryMain" component={InventoryScreen} />
       <ManageStack.Screen name="InventoryEdit" component={InventoryEditScreen} />
+      <ManageStack.Screen name="InventoryStockForm" component={InventoryStockFormScreen} />
       <ManageStack.Screen name="StaffList" component={StaffListScreen} />
       <ManageStack.Screen name="StaffEdit" component={StaffEditScreen} />
       <ManageStack.Screen name="SuppliersList" component={SuppliersListScreen} />
@@ -169,6 +180,10 @@ function SettingsStackNavigator() {
       <SettingsStack.Screen name="SettingsMain" component={SettingsScreen} />
       <SettingsStack.Screen name="UpgradeAccount" component={UpgradeAccountScreen} />
       <SettingsStack.Screen name="ProfileSettings" component={ProfileSettingsScreen} />
+      <SettingsStack.Screen name="PosSettings" component={PosSettingsScreen} />
+      <SettingsStack.Screen name="PrintSettings" component={PrintSettingsScreen} />
+      <SettingsStack.Screen name="RoleSettings" component={RoleSettingsScreen} />
+      <SettingsStack.Screen name="StaffAccountSettings" component={StaffAccountScreen} />
       <SettingsStack.Screen name="ChangePassword" component={ChangePasswordScreen} />
       <SettingsStack.Screen name="DocsWebView" component={DocsWebViewScreen} />
       <SettingsStack.Screen name="Feedback" component={FeedbackScreen} />
@@ -213,7 +228,10 @@ function SketchVariantTwoTabBar({ state, descriptors, navigation }: BottomTabBar
   const manageActiveNestedRoute = manageNestedState?.routes?.[manageNestedState.index]?.name;
   const settingsRoute = state.routes.find((route) => route.name === 'Settings');
   const settingsNestedState = settingsRoute?.state as { key: string; index: number; routes: Array<{ name: string }> } | undefined;
-  const shouldHideTabBar = Boolean(settingsNestedState && settingsNestedState.index > 0);
+  const settingsActiveNestedRoute = settingsNestedState?.routes?.[settingsNestedState.index]?.name;
+  const shouldHideTabBar = Boolean(
+    settingsNestedState && settingsNestedState.index > 0 && settingsActiveNestedRoute !== 'RoleSettings'
+  );
 
   if (shouldHideTabBar) {
     return null;

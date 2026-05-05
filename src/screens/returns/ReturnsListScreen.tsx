@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
-import { ChipRow, SearchBar, FAB } from '../../components';
+import { ChipRow, SearchBar } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 
@@ -157,41 +157,45 @@ export function ReturnsListScreen() {
           <Text style={[styles.headerTitle, { color: colors.text }]}>{t('returns.title')}</Text>
           <Text style={[styles.headerSub, { color: colors.textSecondary }]}>{t('returns.pendingSubtitle', { count: stats.pending })}</Text>
         </View>
-        <TouchableOpacity onPress={() => nav.navigate('ReturnCreate')} style={styles.iconBtn}>
-          <Ionicons name="add" size={24} color={Colors.primary} />
-        </TouchableOpacity>
       </View>
-
-      <SearchBar
-        value={search}
-        onChangeText={setSearch}
-        placeholder={t('returns.searchPlaceholder')}
-      />
-
-      <View style={styles.statsRow}>
-        {[
-          { label: t('returns.status.pending'), value: stats.pending, color: Colors.warning },
-          { label: t('returns.status.approved'), value: stats.approved, color: Colors.primary },
-          { label: t('returns.monthlyRefund'), value: formatMoneyShort(stats.refundedAmount), color: Colors.success },
-          { label: t('returns.returnRate'), value: `${stats.returnRate}%`, color: Colors.accent },
-        ].map(s => (
-          <View key={s.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statVal, { color: s.color }]}>{s.value}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{s.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      <ChipRow
-        chips={STATUS_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey as TranslationKey) }))}
-        selected={filter}
-        onSelect={key => setFilter(key as 'all' | ReturnStatus)}
-      />
 
       <FlatList
         data={filtered}
         keyExtractor={i => String(i.id)}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View>
+            <View style={styles.fullBleedRow}>
+              <SearchBar
+                value={search}
+                onChangeText={setSearch}
+                placeholder={t('returns.searchPlaceholder')}
+              />
+            </View>
+
+            <View style={styles.statsRow}>
+              {[
+                { label: t('returns.status.pending'), value: stats.pending, color: Colors.warning },
+                { label: t('returns.status.approved'), value: stats.approved, color: Colors.primary },
+                { label: t('returns.monthlyRefund'), value: formatMoneyShort(stats.refundedAmount), color: Colors.success },
+                { label: t('returns.returnRate'), value: `${stats.returnRate}%`, color: Colors.accent },
+              ].map(s => (
+                <View key={s.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={[styles.statVal, { color: s.color }]}>{s.value}</Text>
+                  <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{s.label}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={[styles.fullBleedRow, styles.filterBleedRow]}>
+              <ChipRow
+                chips={STATUS_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey as TranslationKey) }))}
+                selected={filter}
+                onSelect={key => setFilter(key as 'all' | ReturnStatus)}
+              />
+            </View>
+          </View>
+        }
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <Ionicons name="search-outline" size={24} color={Colors.textSecondary} />
@@ -244,10 +248,13 @@ export function ReturnsListScreen() {
           </View>
         )}
       />
-      <FAB
+      <TouchableOpacity
+        style={styles.fabPill}
         onPress={() => nav.navigate('ReturnCreate')}
-        style={{ bottom: 20 + insets.bottom }}
-      />
+      >
+        <Ionicons name="add" size={18} color="#fff" />
+        <Text style={styles.fabPillText}>{t('returns.createTitle')}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -267,10 +274,8 @@ const styles = StyleSheet.create({
   headerMain: { flex: 1 },
   headerTitle: { ...Typography.h3 },
   headerSub: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  iconBtn: { padding: 4 },
   statsRow: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
     gap: 8,
   },
@@ -288,6 +293,12 @@ const styles = StyleSheet.create({
   statVal: { ...Typography.h4, fontWeight: '700' },
   statLabel: { ...Typography.caption, color: Colors.textSecondary, marginTop: 1, fontSize: 10.5, textAlign: 'center' },
   listContent: { paddingHorizontal: Spacing.lg, paddingBottom: 96 },
+  fullBleedRow: {
+    marginHorizontal: -Spacing.lg,
+  },
+  filterBleedRow: {
+    paddingRight: Spacing.lg,
+  },
   card: {
     backgroundColor: Colors.card,
     borderTopWidth: 1,
@@ -334,4 +345,25 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyText: { ...Typography.body, color: Colors.textSecondary },
+  fabPill: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 6,
+    ...Shadow.md,
+  },
+  fabPillText: {
+    ...Typography.bodySm,
+    color: '#fff',
+    fontWeight: '700',
+  },
 });

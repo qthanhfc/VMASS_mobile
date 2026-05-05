@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, Image, ImageSourcePropType, Alert, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, Image, ImageSourcePropType, Alert, ActivityIndicator, Linking, Platform } from 'react-native';
 import { CommonActions, useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import * as StoreReview from 'expo-store-review';
 import { languageOptions, useLanguage, type TranslationKey } from '../../i18n';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 import {
@@ -122,6 +123,20 @@ const getUpgradeActionText = (
 const SUPPORT_PHONE_DISPLAY = '0708.245.246';
 const SUPPORT_PHONE_LINK = '0708245246';
 const SUPPORT_EMAIL = 'hotro@vmass.vn';
+
+const getStoreReviewUrl = (storeUrl: string) => {
+  const separator = storeUrl.includes('?') ? '&' : '?';
+
+  if (Platform.OS === 'ios') {
+    return `${storeUrl}${separator}action=write-review`;
+  }
+
+  if (Platform.OS === 'android') {
+    return `${storeUrl}${separator}showAllReviews=true`;
+  }
+
+  return storeUrl;
+};
 
 export function SettingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
@@ -269,6 +284,30 @@ export function SettingsScreen() {
     );
   };
 
+  const handleRateApp = async () => {
+    try {
+      const storeUrl = StoreReview.storeUrl();
+
+      if (storeUrl) {
+        await Linking.openURL(getStoreReviewUrl(storeUrl));
+        return;
+      }
+
+      if (await StoreReview.hasAction()) {
+        await StoreReview.requestReview();
+        return;
+      }
+
+      Alert.alert(t('settings.rateUnavailableTitle'), t('settings.rateUnavailableMessage'));
+    } catch {
+      Alert.alert(t('settings.rateErrorTitle'), t('settings.rateErrorMessage'));
+    }
+  };
+
+  const openPrintSettings = () => {
+    navigation.push('PrintSettings');
+  };
+
   const profileName = getProfileText(profile?.fullname, t('settings.vmassUser'));
   const profileEmail = getProfileText(profile?.email, t('common.updatedNotAvailable'));
   const profileCompanyName = getProfileText(profile?.companyName, t('settings.accountInfo'));
@@ -319,6 +358,13 @@ export function SettingsScreen() {
             onPress={() => navigation.navigate('UpgradeAccount')}
           />
           <ListItem
+            title="Cửa hàng của tôi"
+            left={iconBox('storefront-outline', Colors.primary)}
+            right={rightSummary(profileCompanyName)}
+            showChevron={false}
+            onPress={() => navigation.navigate('ProfileSettings')}
+          />
+          <ListItem
             title={t('settings.changePassword')}
             left={iconBox('lock-closed-outline', '#7c3aed')}
             right={rightSummary(lastPasswordChangedText)}
@@ -330,7 +376,14 @@ export function SettingsScreen() {
             left={iconBox('shield-checkmark-outline', '#0891b2')}
             right={rightSummary(t('settings.rolesCount'))}
             showChevron={false}
-            onPress={() => {}}
+            onPress={() => navigation.navigate('RoleSettings')}
+          />
+          <ListItem
+            title={t('settings.staffAccounts')}
+            left={iconBox('person-add-outline', Colors.success)}
+            right={rightSummary(t('settings.staffAccountsSub'))}
+            showChevron={false}
+            onPress={() => navigation.navigate('StaffAccountSettings')}
           />
         </View>
 
@@ -342,26 +395,19 @@ export function SettingsScreen() {
             left={iconBox('cash-outline', Colors.success)}
             right={rightSummary(t('settings.active'))}
             showChevron={false}
-            onPress={() => {}}
+            onPress={() => navigation.navigate('PosSettings')}
           />
           <ListItem
             title={t('settings.invoiceTemplate')}
             left={iconBox('document-text-outline', Colors.warning)}
             right={rightSummary(t('settings.defaultTemplate'))}
             showChevron={false}
-            onPress={() => {}}
+            onPress={openPrintSettings}
           />
           <ListItem
             title={t('settings.printerConnection')}
             left={iconBox('print-outline', Colors.primary)}
             right={rightSummary('Xprinter XP-80')}
-            showChevron={false}
-            onPress={() => {}}
-          />
-          <ListItem
-            title={t('settings.barcodeScanner')}
-            left={iconBox('barcode-outline', '#db2777')}
-            right={rightSummary(t('settings.phoneCamera'))}
             showChevron={false}
             onPress={() => {}}
           />
@@ -507,6 +553,13 @@ export function SettingsScreen() {
             right={rightSummary(t('settings.feedbackSub'))}
             showChevron={false}
             onPress={() => navigation.navigate('Feedback')}
+          />
+          <ListItem
+            title={t('settings.rateApp')}
+            left={iconBox('star-outline', Colors.warning)}
+            right={rightSummary(t('settings.rateAppSub'), Colors.warning)}
+            showChevron={false}
+            onPress={handleRateApp}
           />
           <ListItem
             title={t('settings.support')}

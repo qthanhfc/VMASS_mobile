@@ -552,127 +552,7 @@ export function ProductsListScreen() {
         title={t('products.title')}
         subtitle={t('products.subtitle', { total: totalProducts.toLocaleString(dateLocale), low: lowStock.toLocaleString(dateLocale) })}
         onBack={() => navigation.goBack()}
-        rightActions={
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerBtn}>
-              <Ionicons name="search" size={20} color={Colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerBtn}>
-              <Ionicons name="filter-outline" size={20} color={Colors.text} />
-            </TouchableOpacity>
-          </View>
-        }
       />
-
-      <View style={styles.searchBarWrap}>
-        <View style={styles.searchInputWrap}>
-          <Ionicons name="search" size={16} color={Colors.textSecondary} />
-          <TextInput
-            style={styles.searchInput}
-            value={search}
-            onChangeText={setSearch}
-            placeholder={t('products.searchPlaceholder')}
-            placeholderTextColor={Colors.textSecondary}
-          />
-          <TouchableOpacity>
-            <Ionicons name="qr-code" size={18} color={Colors.primary} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.chipRowWrap}>
-        <ScrollView
-          style={styles.chipScroll}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRowContent}
-        >
-          {filters.map(chip => {
-            const isActive = category === chip.key;
-            return (
-              <TouchableOpacity
-                key={chip.key}
-                style={[styles.chipItem, isActive && styles.chipItemActive]}
-                onPress={() => setCategory(chip.key)}
-              >
-                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{chip.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{totalProducts}</Text>
-          <Text style={styles.statLabel}>{t('products.totalShort')}</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, styles.statValueSuccess]}>{selling}</Text>
-          <Text style={styles.statLabel}>{t('products.selling')}</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, styles.statValueWarning]}>{lowStock}</Text>
-          <Text style={styles.statLabel}>{t('products.lowStock')}</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, styles.statValueDanger]}>{outOfStock}</Text>
-          <Text style={styles.statLabel}>{t('products.outOfStock')}</Text>
-        </View>
-      </View>
-
-      <View style={styles.sortRow}>
-        <TouchableOpacity style={styles.sortBtn} onPress={() => setSortOpen((prev) => !prev)}>
-          <Text style={styles.sortText}>{t('products.sortLabel', { label: activeSortLabel })}</Text>
-          <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />
-        </TouchableOpacity>
-        <View style={styles.segment}>
-          <TouchableOpacity
-            style={[styles.segmentBtn, viewMode === 'list' && styles.segmentBtnActive]}
-            onPress={() => setViewMode('list')}
-          >
-            <Text style={[styles.segmentText, viewMode === 'list' && styles.segmentTextActive]}>{t('products.view.list')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.segmentBtn, viewMode === 'grid' && styles.segmentBtnActive]}
-            onPress={() => setViewMode('grid')}
-          >
-            <Text style={[styles.segmentText, viewMode === 'grid' && styles.segmentTextActive]}>{t('products.view.grid')}</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-      {sortOpen ? (
-        <View style={styles.sortMenu}>
-          {SORT_OPTIONS.map((option) => {
-            const isSelected = option.key === sortBy;
-            return (
-              <TouchableOpacity
-                key={option.key}
-                style={[styles.sortOption, isSelected && styles.sortOptionActive]}
-                onPress={() => {
-                  setSortBy(option.key);
-                  setSortOpen(false);
-                }}
-              >
-                <Text style={[styles.sortOptionText, isSelected && styles.sortOptionTextActive]}>
-                  {t(option.labelKey)}
-                </Text>
-                {isSelected ? <Ionicons name="checkmark" size={14} color={Colors.primary} /> : null}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      ) : null}
-
-      {errorMessage ? (
-        <View style={styles.errorBanner}>
-          <Ionicons name="warning-outline" size={16} color={Colors.danger} />
-          <Text style={styles.errorText} numberOfLines={2}>{errorMessage}</Text>
-          <TouchableOpacity onPress={() => fetchProducts({ page: 1 })}>
-              <Text style={styles.retryText}>{t('products.retry')}</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
 
       <FlatList
         data={sortedProducts}
@@ -686,6 +566,119 @@ export function ProductsListScreen() {
           viewMode === 'grid' && styles.gridList,
           sortedProducts.length === 0 && styles.listEmpty,
         ]}
+        ListHeaderComponent={
+          <View>
+            <View style={styles.searchBarWrap}>
+              <View style={styles.searchInputWrap}>
+                <Ionicons name="search" size={16} color={Colors.textSecondary} />
+                <TextInput
+                  style={styles.searchInput}
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder={t('products.searchPlaceholder')}
+                  placeholderTextColor={Colors.textSecondary}
+                />
+                <TouchableOpacity>
+                  <Ionicons name="qr-code" size={18} color={Colors.primary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.chipRowWrap}>
+              <ScrollView
+                style={styles.chipScroll}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipRowContent}
+              >
+                {filters.map(chip => {
+                  const isActive = category === chip.key;
+                  return (
+                    <TouchableOpacity
+                      key={chip.key}
+                      style={[styles.chipItem, isActive && styles.chipItemActive]}
+                      onPress={() => setCategory(chip.key)}
+                    >
+                      <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{chip.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{totalProducts}</Text>
+                <Text style={styles.statLabel}>{t('products.totalShort')}</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, styles.statValueSuccess]}>{selling}</Text>
+                <Text style={styles.statLabel}>{t('products.selling')}</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, styles.statValueWarning]}>{lowStock}</Text>
+                <Text style={styles.statLabel}>{t('products.lowStock')}</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, styles.statValueDanger]}>{outOfStock}</Text>
+                <Text style={styles.statLabel}>{t('products.outOfStock')}</Text>
+              </View>
+            </View>
+
+            <View style={styles.sortRow}>
+              <TouchableOpacity style={styles.sortBtn} onPress={() => setSortOpen((prev) => !prev)}>
+                <Text style={styles.sortText}>{t('products.sortLabel', { label: activeSortLabel })}</Text>
+                <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />
+              </TouchableOpacity>
+              <View style={styles.segment}>
+                <TouchableOpacity
+                  style={[styles.segmentBtn, viewMode === 'list' && styles.segmentBtnActive]}
+                  onPress={() => setViewMode('list')}
+                >
+                  <Text style={[styles.segmentText, viewMode === 'list' && styles.segmentTextActive]}>{t('products.view.list')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.segmentBtn, viewMode === 'grid' && styles.segmentBtnActive]}
+                  onPress={() => setViewMode('grid')}
+                >
+                  <Text style={[styles.segmentText, viewMode === 'grid' && styles.segmentTextActive]}>{t('products.view.grid')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            {sortOpen ? (
+              <View style={styles.sortMenu}>
+                {SORT_OPTIONS.map((option) => {
+                  const isSelected = option.key === sortBy;
+                  return (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[styles.sortOption, isSelected && styles.sortOptionActive]}
+                      onPress={() => {
+                        setSortBy(option.key);
+                        setSortOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.sortOptionText, isSelected && styles.sortOptionTextActive]}>
+                        {t(option.labelKey)}
+                      </Text>
+                      {isSelected ? <Ionicons name="checkmark" size={14} color={Colors.primary} /> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {errorMessage ? (
+              <View style={styles.errorBanner}>
+                <Ionicons name="warning-outline" size={16} color={Colors.danger} />
+                <Text style={styles.errorText} numberOfLines={2}>{errorMessage}</Text>
+                <TouchableOpacity onPress={() => fetchProducts({ page: 1 })}>
+                    <Text style={styles.retryText}>{t('products.retry')}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        }
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -727,20 +720,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  headerBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   searchBarWrap: {
-    paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.sm,
   },
@@ -761,7 +741,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   chipRowWrap: {
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
   },
   chipScroll: {
@@ -801,7 +780,6 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
     gap: Spacing.sm,
   },
@@ -834,7 +812,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   sortRow: {
-    paddingHorizontal: Spacing.lg,
     paddingBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',

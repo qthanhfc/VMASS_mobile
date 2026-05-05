@@ -98,59 +98,56 @@ export function StaffListScreen() {
         title={t('staff.title')}
         subtitle={t('staff.subtitle', { total: MOCK_STAFF.length, onDuty: onDutyCount })}
         onBack={() => nav.goBack()}
-        rightActions={
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerBtn}>
-              <Ionicons name="search" size={20} color={Colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerBtn}>
-              <Ionicons name="filter-outline" size={18} color={Colors.text} />
-            </TouchableOpacity>
-          </View>
-        }
       />
-
-      <SearchBar
-        value={search}
-        onChangeText={setSearch}
-        placeholder={t('staff.searchPlaceholder')}
-      />
-
-      <View style={styles.attendanceWrap}>
-        <Card padding={12}>
-          <View style={styles.attendanceHead}>
-            <View style={styles.attendanceTitleWrap}>
-              <Ionicons name="calendar-outline" size={14} color={Colors.text} />
-              <Text style={styles.attendanceTitle}>{t('staff.attendanceToday')}</Text>
-            </View>
-            <TouchableOpacity>
-              <Text style={styles.attendanceAction}>{t('staff.detail')} {'>'}</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.attendanceRow}>
-            {[
-              { label: t('staff.checkedIn'), value: '8', color: '#4a9f4a' },
-              { label: t('staff.notCheckedIn'), value: '2', color: '#d97757' },
-              { label: t('staff.absent'), value: '2', color: '#8a8a8a' },
-              { label: t('staff.late'), value: '1', color: '#c94a4a' },
-            ].map((stat) => (
-              <View key={stat.label} style={styles.attendanceStat}>
-                <Text style={[styles.attendanceValue, { color: stat.color }]}>{stat.value}</Text>
-                <Text style={styles.attendanceLabel}>{stat.label}</Text>
-              </View>
-            ))}
-          </View>
-        </Card>
-      </View>
-
-      <ChipRow chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))} selected={filter} onSelect={(value) => setFilter(value as StaffFilter)} />
 
       <FlatList
         data={filtered}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <View>
+            <View style={styles.fullBleedRow}>
+              <SearchBar
+                value={search}
+                onChangeText={setSearch}
+                placeholder={t('staff.searchPlaceholder')}
+              />
+            </View>
+
+            <View style={styles.attendanceWrap}>
+              <Card padding={12}>
+                <View style={styles.attendanceHead}>
+                  <View style={styles.attendanceTitleWrap}>
+                    <Ionicons name="calendar-outline" size={14} color={Colors.text} />
+                    <Text style={styles.attendanceTitle}>{t('staff.attendanceToday')}</Text>
+                  </View>
+                  <TouchableOpacity>
+                    <Text style={styles.attendanceAction}>{t('staff.detail')} {'>'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.attendanceRow}>
+                  {[
+                    { label: t('staff.checkedIn'), value: '8', color: '#4a9f4a' },
+                    { label: t('staff.notCheckedIn'), value: '2', color: '#d97757' },
+                    { label: t('staff.absent'), value: '2', color: '#8a8a8a' },
+                    { label: t('staff.late'), value: '1', color: '#c94a4a' },
+                  ].map((stat) => (
+                    <View key={stat.label} style={styles.attendanceStat}>
+                      <Text style={[styles.attendanceValue, { color: stat.color }]}>{stat.value}</Text>
+                      <Text style={styles.attendanceLabel}>{stat.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Card>
+            </View>
+
+            <View style={[styles.fullBleedRow, styles.filterBleedRow]}>
+              <ChipRow chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))} selected={filter} onSelect={(value) => setFilter(value as StaffFilter)} />
+            </View>
+          </View>
+        }
         renderItem={({ item, index }) => {
           const isFirst = index === 0;
           const isLast = index === filtered.length - 1;
@@ -204,20 +201,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  headerBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   attendanceWrap: {
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
   },
   attendanceHead: {
@@ -264,6 +248,12 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: 120,
+  },
+  fullBleedRow: {
+    marginHorizontal: -Spacing.lg,
+  },
+  filterBleedRow: {
+    paddingRight: Spacing.lg,
   },
   row: {
     flexDirection: 'row',

@@ -4,3 +4,7 @@ export * from './auth';
 export * from './products';
 export * from './profile';
 export * from './feedback';
+export * from './roles';
+export * from './inventory';
+export * from './orders';
+export * from './customers';
