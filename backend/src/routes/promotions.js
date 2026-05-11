@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/', async (req, res) => {
   try {
@@ -24,6 +25,7 @@ router.post('/', async (req, res) => {
       `INSERT INTO promotions (name, type, value, code, usage_limit, start_date, end_date, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [name, type, value, code, usage_limit || 0, start_date, end_date, status || 'active']
     );
+    emitRealtimeEvent('promotions', 'created', { id: rows[0].id });
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -35,6 +37,7 @@ router.put('/:id', async (req, res) => {
       `UPDATE promotions SET name=$1, type=$2, value=$3, code=$4, usage_limit=$5, start_date=$6, end_date=$7, status=$8 WHERE id=$9 RETURNING *`,
       [name, type, value, code, usage_limit, start_date, end_date, status, req.params.id]
     );
+    emitRealtimeEvent('promotions', 'updated', { id: rows[0]?.id || Number(req.params.id) });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

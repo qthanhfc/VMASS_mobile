@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/', async (req, res) => {
   try {
@@ -44,6 +45,9 @@ router.post('/', async (req, res) => {
       await client.query(`UPDATE products SET stock=stock-$1, updated_at=NOW() WHERE id=$2`, [item.qty, item.product_id]);
     }
     await client.query('COMMIT');
+    emitRealtimeEvent('orders', 'created', { id: rows[0].id });
+    emitRealtimeEvent('products', 'stock_updated', { orderId: rows[0].id });
+    emitRealtimeEvent('inventory', 'updated', { orderId: rows[0].id });
     res.status(201).json(rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -55,6 +59,7 @@ router.put('/:id', async (req, res) => {
   try {
     const { status } = req.body;
     const { rows } = await db.query(`UPDATE orders SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *`, [status, req.params.id]);
+    emitRealtimeEvent('orders', 'updated', { id: rows[0]?.id || Number(req.params.id), status });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -16,7 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { EmptyState, Header } from '../../components';
@@ -44,6 +44,7 @@ import {
 } from '../../utils/roleRules';
 
 type Nav = NativeStackNavigationProp<SettingsStackParamList>;
+type Route = RouteProp<SettingsStackParamList, 'RoleSettings'>;
 
 const PAGE_SIZE = 100;
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -88,6 +89,7 @@ function isHiddenOnMobile(role: RoleCatalogItem) {
 
 export function RoleSettingsScreen() {
   const navigation = useNavigation<Nav>();
+  const route = useRoute<Route>();
   const { colors } = useThemeMode();
   const [roles, setRoles] = useState<UserRole[]>([]);
   const [catalog, setCatalog] = useState<RoleCatalogItem[]>([]);
@@ -99,6 +101,7 @@ export function RoleSettingsScreen() {
   const [formName, setFormName] = useState('');
   const [formSettings, setFormSettings] = useState<RolePermissionSetting[]>([]);
   const [formRoleType, setFormRoleType] = useState<string | null>(null);
+  const hasAutoOpenedRoleRef = useRef(false);
   const formProgress = useRef(new Animated.Value(0)).current;
 
   const loadData = useCallback(
@@ -161,6 +164,19 @@ export function RoleSettingsScreen() {
     }).start();
   };
 
+  useEffect(() => {
+    const focusRoleId = route.params?.focusRoleId;
+    if (!focusRoleId || hasAutoOpenedRoleRef.current) return;
+    if (roles.length === 0) return;
+
+    const matchedRole = roles.find((role) => String(role.id) === String(focusRoleId));
+    if (!matchedRole) return;
+
+    hasAutoOpenedRoleRef.current = true;
+    openEditForm(matchedRole);
+    navigation.setParams({ focusRoleId: undefined, focusRoleName: undefined });
+  }, [navigation, roles, route.params?.focusRoleId]);
+
   const closeForm = useCallback(() => {
     Animated.timing(formProgress, {
       toValue: 0,
@@ -203,6 +219,12 @@ export function RoleSettingsScreen() {
   const handleBack = () => {
     if (formVisible) {
       closeForm();
+      return;
+    }
+
+    if (route.params?.returnToManage) {
+      const tabsNav = navigation.getParent() as any;
+      tabsNav?.navigate('Manage');
       return;
     }
 

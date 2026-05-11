@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/', async (req, res) => {
   try {
@@ -47,6 +48,7 @@ router.post('/', async (req, res) => {
       `INSERT INTO products (name, sku, price, cost, stock, min_stock, category, image, is_online, allow_oversell, vat_applied) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [name, sku, price || 0, cost || 0, stock || 0, min_stock || 5, category, image, is_online ?? true, allow_oversell ?? false, vat_applied ?? false]
     );
+    emitRealtimeEvent('products', 'created', { id: rows[0].id });
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -58,6 +60,7 @@ router.put('/:id', async (req, res) => {
       `UPDATE products SET name=$1, sku=$2, price=$3, cost=$4, stock=$5, min_stock=$6, category=$7, image=$8, status=$9, is_online=$10, allow_oversell=$11, vat_applied=$12, updated_at=NOW() WHERE id=$13 RETURNING *`,
       [name, sku, price, cost, stock, min_stock, category, image, status, is_online, allow_oversell, vat_applied, req.params.id]
     );
+    emitRealtimeEvent('products', 'updated', { id: rows[0]?.id || Number(req.params.id) });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -65,6 +68,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     await db.query('DELETE FROM products WHERE id=$1', [req.params.id]);
+    emitRealtimeEvent('products', 'deleted', { id: Number(req.params.id) });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

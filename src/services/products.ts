@@ -48,9 +48,11 @@ type ApiProduct = {
   updatedAt?: string | null;
   variant?: ApiVariant[];
   variants?: ApiVariant[];
+  size?: ProductVariantOption[] | string | null;
   sizes?: ProductVariantOption[] | string | null;
   colors?: ProductVariantOption[] | string | null;
   materials?: ProductVariantOption[] | string | null;
+  topping?: ProductVariantOption[] | string | null;
   toppings?: ProductVariantOption[] | string | null;
   ice?: ProductVariantOption[] | string | null;
   sugar?: ProductVariantOption[] | string | null;
@@ -292,10 +294,10 @@ const mapProduct = (product: ApiProduct): Product => {
     bestter: Boolean(product.bestter),
     variantCount: variants.length,
     variants,
-    sizeOptions: parseOptionList(product.sizes),
+    sizeOptions: parseOptionList(product.sizes ?? product.size),
     colorOptions: parseOptionList(product.colors),
     materialOptions: parseOptionList(product.materials),
-    toppings: parseOptionList(product.toppings),
+    toppings: parseOptionList(product.toppings ?? product.topping),
     iceOptions: parseOptionList(product.ice),
     sugarOptions: parseOptionList(product.sugar),
     sizeTitle: product.sizeTitle || undefined,

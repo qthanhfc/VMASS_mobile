@@ -8,3 +8,13 @@ export * from './roles';
 export * from './inventory';
 export * from './orders';
 export * from './customers';
+export * from './suppliers';
+export * from './returns';
+export * from './promotions';
+export * from './staff';
+export * from './debtInvoices';
+export * from './ecommerce';
+export * from './home';
+export * from './pos';
+
+export * from './tax';

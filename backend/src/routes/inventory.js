@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/', async (req, res) => {
   try {
@@ -24,6 +25,8 @@ router.post('/adjust', async (req, res) => {
     await client.query(`INSERT INTO inventory_transactions (product_id, type, qty, branch_to, note) VALUES ($1,$2,$3,$4,$5)`, [product_id, type, qty, branch, note]);
     await client.query(`UPDATE products SET stock=stock+$1, updated_at=NOW() WHERE id=$2`, [qty, product_id]);
     await client.query('COMMIT');
+    emitRealtimeEvent('inventory', 'adjusted', { productId: product_id });
+    emitRealtimeEvent('products', 'stock_updated', { id: product_id });
     res.json({ success: true });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -38,6 +41,7 @@ router.post('/transfer', async (req, res) => {
     const { product_id, qty, branch_from, branch_to, note } = req.body;
     await client.query(`INSERT INTO inventory_transactions (product_id, type, qty, branch_from, branch_to, note) VALUES ($1,'transfer',$2,$3,$4,$5)`, [product_id, qty, branch_from, branch_to, note]);
     await client.query('COMMIT');
+    emitRealtimeEvent('inventory', 'transferred', { productId: product_id });
     res.json({ success: true });
   } catch (err) {
     await client.query('ROLLBACK');

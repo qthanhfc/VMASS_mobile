@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/', async (req, res) => {
   try {
@@ -23,6 +24,8 @@ router.post('/', async (req, res) => {
       `INSERT INTO tax_declarations (type, period, revenue, tax_amount, due_date) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
       [type, period, revenue, tax_amount, due_date]
     );
+    emitRealtimeEvent('tax', 'created', { id: rows[0].id });
+    emitRealtimeEvent('dashboard', 'updated', { source: 'tax' });
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -1,31 +1,34 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, ImageSourcePropType } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, ImageSourcePropType, Alert, Linking } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 import { Header } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
+import {
+  connectPlatform,
+  disconnectPlatform,
+  listEcommercePlatforms,
+  syncPlatform,
+  type EcommercePlatformKey,
+  type EcommercePlatformSummary,
+} from '../../services';
 
-type Platform = {
-  key: string;
+type PlatformVisual = {
+  key: EcommercePlatformKey;
   name: string;
-  shop?: string;
-  connected: boolean;
-  orders?: number;
-  pending?: number;
-  revenue?: number;
-  rating?: number | null;
   color: string;
   logo: ImageSourcePropType;
 };
 
-const PLATFORMS: Platform[] = [
-  { key: 'shopee', name: 'Shopee', shop: 'vmass.store', connected: true, orders: 42, pending: 3, revenue: 4200000, rating: 4.8, color: '#ee4d2d', logo: require('../../../assets/ecommerce/shopee.png') },
-  { key: 'tiktok', name: 'TikTok Shop', shop: '@vmass', connected: true, orders: 27, pending: 5, revenue: 2800000, rating: 4.7, color: '#1a1a1a', logo: require('../../../assets/ecommerce/tiktok.png') },
-  { key: 'lazada', name: 'Lazada', shop: 'VMASS Official', connected: true, orders: 18, pending: 0, revenue: 1900000, rating: 4.9, color: '#0f146d', logo: require('../../../assets/ecommerce/lazada.png') },
-  { key: 'tiki', name: 'Tiki', connected: false, color: '#189eff', logo: require('../../../assets/ecommerce/tiki.png') },
-  { key: 'sendo', name: 'Sendo', connected: false, color: '#d0021b', logo: require('../../../assets/ecommerce/sendo.png') },
-  { key: 'facebook', name: 'Facebook Shop', shop: 'fb.com/vmass', connected: true, orders: 12, pending: 2, revenue: 890000, rating: null, color: '#1877f2', logo: require('../../../assets/ecommerce/facebook.png') },
+const PLATFORM_VISUALS: PlatformVisual[] = [
+  { key: 'shopee', name: 'Shopee', color: '#ee4d2d', logo: require('../../../assets/ecommerce/shopee.png') },
+  { key: 'tiktok', name: 'TikTok Shop', color: '#1a1a1a', logo: require('../../../assets/ecommerce/tiktok.png') },
+  { key: 'lazada', name: 'Lazada', color: '#0f146d', logo: require('../../../assets/ecommerce/lazada.png') },
+  { key: 'tiki', name: 'Tiki', color: '#189eff', logo: require('../../../assets/ecommerce/tiki.png') },
+  { key: 'sendo', name: 'Sendo', color: '#d0021b', logo: require('../../../assets/ecommerce/sendo.png') },
+  { key: 'facebook', name: 'Facebook Shop', color: '#1877f2', logo: require('../../../assets/ecommerce/facebook.png') },
 ];
 
 const FILTERS = [
@@ -50,8 +53,43 @@ export function EcommerceScreen() {
   const navigation = useNavigation<any>();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
+  const [platforms, setPlatforms] = useState<EcommercePlatformSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [syncingKey, setSyncingKey] = useState('');
+  const [connectingKey, setConnectingKey] = useState('');
+  const [disconnectingKey, setDisconnectingKey] = useState('');
 
-  const connectedPlatforms = useMemo(() => PLATFORMS.filter(platform => platform.connected), []);
+  const visualMap = useMemo(
+    () =>
+      PLATFORM_VISUALS.reduce<Record<string, PlatformVisual>>((acc, current) => {
+        acc[current.key] = current;
+        return acc;
+      }, {}),
+    [],
+  );
+
+  const loadPlatforms = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await listEcommercePlatforms();
+      setPlatforms(result.items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu sàn TMĐT.');
+      setPlatforms([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPlatforms();
+    }, [loadPlatforms]),
+  );
+
+  const connectedPlatforms = useMemo(() => platforms.filter(platform => platform.connected), [platforms]);
   const totalOrders = connectedPlatforms.reduce((sum, platform) => sum + (platform.orders || 0), 0);
   const totalPending = connectedPlatforms.reduce((sum, platform) => sum + (platform.pending || 0), 0);
   const totalRevenue = connectedPlatforms.reduce((sum, platform) => sum + (platform.revenue || 0), 0);
@@ -59,11 +97,11 @@ export function EcommerceScreen() {
   const filteredPlatforms = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    return PLATFORMS.filter(platform => {
+    return platforms.filter(platform => {
       const matchesSearch =
         query.length === 0 ||
         platform.name.toLowerCase().includes(query) ||
-        platform.shop?.toLowerCase().includes(query);
+        platform.shop.toLowerCase().includes(query);
       const matchesFilter =
         filter === 'all' ||
         (filter === 'connected' && platform.connected) ||
@@ -72,16 +110,88 @@ export function EcommerceScreen() {
 
       return matchesSearch && matchesFilter;
     });
-  }, [filter, search]);
+  }, [filter, platforms, search]);
+
+  const handleConnect = useCallback(async (platformKey: EcommercePlatformKey) => {
+    setConnectingKey(platformKey);
+    setError('');
+    try {
+      const result = await connectPlatform(platformKey);
+      const redirect =
+        (result as any)?.url ||
+        (result as any)?.data?.url ||
+        '';
+      if (typeof redirect === 'string' && /^https?:\/\//i.test(redirect)) {
+        await Linking.openURL(redirect);
+      } else {
+        Alert.alert('Thông báo', 'Đã gửi yêu cầu kết nối, vui lòng hoàn tất xác thực trong trình duyệt.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể bắt đầu kết nối sàn.');
+    } finally {
+      setConnectingKey('');
+    }
+  }, []);
+
+  const handleSync = useCallback(async (platformKey: EcommercePlatformKey) => {
+    setSyncingKey(platformKey);
+    setError('');
+    try {
+      await syncPlatform(platformKey);
+      await loadPlatforms();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể đồng bộ dữ liệu sàn.');
+    } finally {
+      setSyncingKey('');
+    }
+  }, [loadPlatforms]);
+
+  const handleDisconnect = useCallback(async (platform: EcommercePlatformSummary) => {
+    Alert.alert(
+      'Xác nhận',
+      `Ngắt kết nối ${platform.name}?`,
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Ngắt kết nối',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDisconnectingKey(platform.key);
+              await disconnectPlatform(platform.key, platform.metaIds);
+              await loadPlatforms();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Không thể ngắt kết nối sàn.');
+            } finally {
+              setDisconnectingKey('');
+            }
+          },
+        },
+      ],
+    );
+  }, [loadPlatforms]);
+
+  const handleSyncAll = useCallback(async () => {
+    setError('');
+    setSyncingKey('all');
+    try {
+      await Promise.all(connectedPlatforms.map((platform) => syncPlatform(platform.key)));
+      await loadPlatforms();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể đồng bộ tất cả sàn.');
+    } finally {
+      setSyncingKey('');
+    }
+  }, [connectedPlatforms, loadPlatforms]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Header
+        <Header
         title={t('ecommerce.title')}
-        subtitle={t('ecommerce.subtitle', { connected: connectedPlatforms.length, total: PLATFORMS.length })}
+        subtitle={t('ecommerce.subtitle', { connected: connectedPlatforms.length, total: platforms.length || PLATFORM_VISUALS.length })}
         onBack={() => navigation.goBack()}
         rightActions={
-          <TouchableOpacity style={styles.headerBtn}>
+          <TouchableOpacity style={styles.headerBtn} onPress={loadPlatforms}>
             <Ionicons name="refresh-outline" size={20} color={Colors.text} />
           </TouchableOpacity>
         }
@@ -153,13 +263,26 @@ export function EcommerceScreen() {
 
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('ecommerce.platforms')}</Text>
-          <TouchableOpacity style={styles.sectionAction}>
+          <TouchableOpacity style={styles.sectionAction} onPress={handleSyncAll} disabled={syncingKey === 'all'}>
             <Ionicons name="sync-outline" size={15} color={Colors.primary} />
-            <Text style={styles.sectionActionText}>{t('ecommerce.syncAll')}</Text>
+            <Text style={styles.sectionActionText}>{syncingKey === 'all' ? 'Sync...' : t('ecommerce.syncAll')}</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.platformList}>
+          {loading ? (
+            <View style={styles.stateWrap}>
+              <Text style={styles.stateText}>Đang tải dữ liệu sàn...</Text>
+            </View>
+          ) : null}
+          {!loading && error ? (
+            <View style={styles.stateWrap}>
+              <Text style={[styles.stateText, styles.stateErrorText]}>{error}</Text>
+              <TouchableOpacity onPress={loadPlatforms} style={styles.stateRetryBtn}>
+                <Text style={styles.stateRetryText}>Thử lại</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
           {filteredPlatforms.map(platform => (
             <TouchableOpacity
               key={platform.key}
@@ -168,7 +291,7 @@ export function EcommerceScreen() {
             >
               <View style={styles.platformHeader}>
                 <View style={styles.platformAvatar}>
-                  <Image source={platform.logo} style={styles.platformLogo} resizeMode="contain" />
+                  <Image source={(visualMap[platform.key] || PLATFORM_VISUALS[0]).logo} style={styles.platformLogo} resizeMode="contain" />
                 </View>
 
                 <View style={styles.platformInfo}>
@@ -184,8 +307,8 @@ export function EcommerceScreen() {
                     <Text style={styles.connectedText}>{t('ecommerce.connectedShort')}</Text>
                   </View>
                 ) : (
-                  <TouchableOpacity style={styles.connectBtn}>
-                    <Text style={styles.connectText}>{t('ecommerce.connect')}</Text>
+                  <TouchableOpacity style={styles.connectBtn} onPress={() => handleConnect(platform.key)} disabled={connectingKey === platform.key}>
+                    <Text style={styles.connectText}>{connectingKey === platform.key ? '...' : t('ecommerce.connect')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -218,6 +341,24 @@ export function EcommerceScreen() {
                       <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>{t('ecommerce.rating')}</Text>
                       <Text style={[styles.metricValue, { color: colors.text }]}>{platform.rating ? `${platform.rating}` : '-'}</Text>
                     </View>
+                  </View>
+                  <View style={styles.platformActionsRow}>
+                    <TouchableOpacity
+                      style={styles.actionPill}
+                      onPress={() => handleSync(platform.key)}
+                      disabled={syncingKey === platform.key}
+                    >
+                      <Text style={styles.actionPillText}>{syncingKey === platform.key ? 'Đang sync...' : t('ecommerce.syncAll')}</Text>
+                    </TouchableOpacity>
+                    {platform.supportsDisconnect && platform.metaIds.length > 0 ? (
+                      <TouchableOpacity
+                        style={[styles.actionPill, styles.actionPillDanger]}
+                        onPress={() => handleDisconnect(platform)}
+                        disabled={disconnectingKey === platform.key}
+                      >
+                        <Text style={styles.actionPillTextDanger}>{disconnectingKey === platform.key ? '...' : 'Ngắt kết nối'}</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                 </>
               )}
@@ -393,6 +534,31 @@ const styles = StyleSheet.create({
   platformList: {
     gap: Spacing.sm,
   },
+  stateWrap: {
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  stateText: {
+    ...Typography.captionMd,
+    color: Colors.textSecondary,
+  },
+  stateErrorText: {
+    color: Colors.danger,
+    textAlign: 'center',
+  },
+  stateRetryBtn: {
+    borderWidth: 1,
+    borderColor: Colors.primary + '40',
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 4,
+  },
+  stateRetryText: {
+    ...Typography.captionMd,
+    color: Colors.primary,
+    fontWeight: '700',
+  },
   platformCard: {
     borderRadius: Radius.lg,
     backgroundColor: Colors.card,
@@ -501,5 +667,30 @@ const styles = StyleSheet.create({
   },
   metricValueWarning: {
     color: Colors.warning,
+  },
+  platformActionsRow: {
+    marginTop: Spacing.sm,
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  actionPill: {
+    borderWidth: 1,
+    borderColor: Colors.primary + '40',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: Radius.sm,
+  },
+  actionPillDanger: {
+    borderColor: Colors.danger + '40',
+  },
+  actionPillText: {
+    ...Typography.captionMd,
+    color: Colors.primary,
+    fontWeight: '700',
+  },
+  actionPillTextDanger: {
+    ...Typography.captionMd,
+    color: Colors.danger,
+    fontWeight: '700',
   },
 });

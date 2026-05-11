@@ -1,11 +1,14 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const { initRealtime } = require('./realtime');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
 
 app.use(helmet());
 app.use(cors());
@@ -34,6 +37,8 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => console.log(`VMASS API running on port ${PORT}`));
+initRealtime(server);
+
+server.listen(PORT, () => console.log(`VMASS API running on port ${PORT}`));
 
 module.exports = app;

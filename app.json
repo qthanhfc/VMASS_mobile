@@ -42,7 +42,8 @@
           "photosPermission": "VMASS cần truy cập thư viện ảnh để tìm sản phẩm bằng hình ảnh."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ]
   }
 }

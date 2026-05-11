@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 import { useLanguage, type TranslationKey } from '../../i18n';
+import { useRealtimeRefresh } from '../../realtime';
 import {
   computeMinStock,
   getMinStockSettings,
@@ -234,6 +235,7 @@ export function InventoryScreen({ navigation }: any) {
       setRefreshing(false);
     }
   }, [loadInventory]);
+  useRealtimeRefresh(['inventory', 'products', 'orders'], onRefresh);
 
   const openSearchBarcodeScanner = useCallback(async () => {
     if (!cameraPermission?.granted) {

@@ -117,16 +117,63 @@ export interface OrderItem {
   total: number;
 }
 
+export type StaffSalaryBy = 'h' | 'd' | 'm';
+export type StaffWorkingStatus = 'on' | 'off';
+export type StaffId = number | string;
+
+export interface StaffWorkingHour {
+  hash: string;
+  start: string;
+  end: string;
+}
+
+export type StaffDynamicFormValues = Record<string, string | number | boolean | null | undefined>;
+
+export interface StaffSalaryArchive {
+  month: number | string;
+  year: number | string;
+}
+
+export interface StaffPendingSetting {
+  date_get_salary?: string | number | null;
+  salary_by?: StaffSalaryBy | string | null;
+  salary_value?: string | number | null;
+  hour_working_on_day?: string | number | null;
+  working_hours?: string | null;
+  date_start_pending_setting?: string | null;
+}
+
 export interface Staff {
-  id: number;
+  id: StaffId;
   name: string;
   phone: string;
   email?: string;
-  role: string;
-  branch: string;
-  salary: number;
-  commission: number;
-  permissions: StaffPermissions;
+  address?: string;
+  birthday?: string;
+  permission_name: string;
+  date_join: string;
+  date_get_salary: string;
+  salary_by: StaffSalaryBy;
+  salary_value: string;
+  hour_working_on_day: string;
+  working_hours: StaffWorkingHour[];
+  status_working: StaffWorkingStatus;
+  dynamic_form: StaffDynamicFormValues;
+  current_commission: number;
+  current_bonus: number;
+  current_overtime: number;
+  current_advence: number;
+  current_fined: number;
+  current_dayoff: number;
+  current_day_working: number;
+  current_salary: number;
+  total_day_working: number;
+  total_salary: number;
+  pending_date: StaffPendingSetting | null;
+  pending_hour: StaffPendingSetting | null;
+  lst_6_month: StaffSalaryArchive[];
+  overtime_hour: number;
+  day_off_hour: number;
   avatar?: string;
   status: 'active' | 'inactive';
 }
@@ -186,14 +233,14 @@ export interface ReturnItem {
 export interface Promotion {
   id: number;
   name: string;
-  type: 'percent' | 'flat' | 'bogo' | 'combo';
-  value: number;
+  type: string;
+  value?: number;
   code?: string;
   usageLimit: number;
   usageCount: number;
   startDate: string;
   endDate: string;
-  status: 'active' | 'scheduled' | 'ended';
+  status: 'active' | 'scheduled' | 'ended' | 'paused';
 }
 
 export interface BookkeepingEntry {
@@ -243,11 +290,20 @@ export interface DashboardStats {
   revenueToday: number;
   revenueYesterday: number;
   ordersToday: number;
+  ordersPrevious: number;
   newCustomers: number;
   itemsSold: number;
+  itemsSoldPrevious: number;
   profitToday: number;
+  profitPrevious: number;
   monthlyGoal: number;
   monthlyRevenue: number;
+  dailyGoal: number;
+  dailyRevenue: number;
+  dailyProductGoal: number;
+  dailyProductsSold: number;
+  monthlyProductGoal: number;
+  monthlyProductsSold: number;
   weeklyRevenue: number[];
   topProducts: TopProduct[];
   lowStockProducts: LowStockProduct[];
@@ -266,6 +322,7 @@ export interface LowStockProduct {
   name: string;
   stock: number;
   minStock: number;
+  unit?: string;
 }
 
 export interface RecentOrder {
@@ -277,3 +334,5 @@ export interface RecentOrder {
   channel: string;
   createdAt: string;
 }
+
+export * from './tax';

@@ -22,6 +22,15 @@ export type UserRoleOption = {
   name?: string;
 };
 
+export type StaffAccessAccount = {
+  id: string | number;
+  name: string;
+  username: string;
+  email?: string;
+  user_staff_id?: string | number | null;
+  user_role_id?: UserRoleOption | null;
+};
+
 type UserRoleListResponse = {
   data?: UserRole[];
   totalPage?: number;
@@ -37,6 +46,10 @@ type RolePayload = {
   role_aliases: RolePermissionSetting[];
 };
 
+type StaffAccessAccountResponse = {
+  data?: StaffAccessAccount | null;
+};
+
 export type CreateStaffAccountPayload = {
   fullname: string;
   username: string;
@@ -47,6 +60,16 @@ export type CreateStaffAccountPayload = {
   domain?: string | null;
   staff_id?: string | number | null;
   newStaffName?: string | null;
+};
+
+export type UpdateStaffAccountPayload = {
+  id: string | number;
+  fullname: string;
+  username: string;
+  email?: string;
+  password?: string;
+  repassword?: string;
+  user_role_id: string | number;
 };
 
 export async function getUserRoles({
@@ -69,6 +92,27 @@ export async function getUserRoles({
     totalPage: response.totalPage || 1,
     totalItem: response.totalItem || 0,
   };
+}
+
+export async function getUserRoleDetailById(id: string | number) {
+  const targetId = String(id);
+  let currentPage = 1;
+  let totalPage = 1;
+
+  while (currentPage <= totalPage) {
+    const { data, totalPage: fetchedTotalPage } = await getUserRoles({
+      pageSize: 100,
+      currentPage,
+      search: '',
+    });
+    totalPage = fetchedTotalPage;
+
+    const found = data.find((item) => String(item.id) === targetId);
+    if (found) return found;
+    currentPage += 1;
+  }
+
+  return null;
 }
 
 export async function getRoleCatalog() {
@@ -115,6 +159,22 @@ export async function createStaffAccount(payload: CreateStaffAccountPayload) {
   return request<unknown>({
     method: 'POST',
     path: '/auth/signup/role',
+    body: payload,
+  });
+}
+
+export async function getStaffAccessAccount(staffId: string | number) {
+  const response = await request<StaffAccessAccountResponse>({
+    path: `/user-role/grant/by-staff?user_staff_id=${encodeURIComponent(String(staffId))}`,
+  });
+
+  return response.data || null;
+}
+
+export async function updateStaffAccessAccount(payload: UpdateStaffAccountPayload) {
+  return request<unknown>({
+    method: 'PUT',
+    path: '/user-role/grant',
     body: payload,
   });
 }

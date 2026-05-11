@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/', async (req, res) => {
   try {
@@ -30,6 +31,7 @@ router.post('/', async (req, res) => {
       await client.query(`INSERT INTO return_items (return_id, product_name, qty, price) VALUES ($1,$2,$3,$4)`, [rows[0].id, item.product_name, item.qty, item.price]);
     }
     await client.query('COMMIT');
+    emitRealtimeEvent('returns', 'created', { id: rows[0].id });
     res.status(201).json(rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -40,6 +42,7 @@ router.post('/', async (req, res) => {
 router.post('/:id/approve', async (req, res) => {
   try {
     const { rows } = await db.query(`UPDATE returns SET status='approved', updated_at=NOW() WHERE id=$1 RETURNING *`, [req.params.id]);
+    emitRealtimeEvent('returns', 'approved', { id: rows[0]?.id || Number(req.params.id) });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -47,6 +50,7 @@ router.post('/:id/approve', async (req, res) => {
 router.post('/:id/reject', async (req, res) => {
   try {
     const { rows } = await db.query(`UPDATE returns SET status='rejected', updated_at=NOW() WHERE id=$1 RETURNING *`, [req.params.id]);
+    emitRealtimeEvent('returns', 'rejected', { id: rows[0]?.id || Number(req.params.id) });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

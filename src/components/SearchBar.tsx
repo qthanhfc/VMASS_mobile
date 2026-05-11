@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, TextInput, StyleSheet, TouchableOpacity, TextInputProps } from 'react-native';
 import { Colors, Spacing, Radius, useThemeMode } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -8,10 +8,23 @@ interface SearchBarProps {
   onChangeText: (text: string) => void;
   placeholder?: string;
   onQrPress?: () => void;
+  onFocus?: TextInputProps['onFocus'];
+  onBlur?: TextInputProps['onBlur'];
+  onSubmitEditing?: TextInputProps['onSubmitEditing'];
 }
 
-export function SearchBar({ value, onChangeText, placeholder = 'Tìm kiếm...', onQrPress }: SearchBarProps) {
+export function SearchBar({
+  value,
+  onChangeText,
+  placeholder = 'Tìm kiếm...',
+  onQrPress,
+  onFocus,
+  onBlur,
+  onSubmitEditing,
+}: SearchBarProps) {
   const { colors } = useThemeMode();
+  const placeholderColor =
+    colors.text === Colors.textDark ? 'rgba(244,241,232,0.6)' : 'rgba(26,26,26,0.45)';
 
   return (
     <View style={styles.container}>
@@ -22,7 +35,10 @@ export function SearchBar({ value, onChangeText, placeholder = 'Tìm kiếm...',
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={colors.textSecondary}
+          placeholderTextColor={placeholderColor}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onSubmitEditing={onSubmitEditing}
         />
       </View>
       {onQrPress && (

@@ -240,7 +240,7 @@ export function InventoryEditScreen({ navigation }: any) {
               const found = stocks.find((stock) => {
                 const sku = (stock.sku || '').trim().toLowerCase();
                 const barcode = (stock.barcode || '').trim().toLowerCase();
-                const key = (scanItem.sku || scanItem.code || '').trim().toLowerCase();
+                const key = (scanItem.sku || '').trim().toLowerCase();
                 return (sku && sku === key) || (barcode && barcode === key);
               });
 

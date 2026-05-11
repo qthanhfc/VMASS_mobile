@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/', async (req, res) => {
   try {
@@ -16,6 +17,7 @@ router.get('/', async (req, res) => {
 router.put('/:id/read', async (req, res) => {
   try {
     await db.query(`UPDATE messages SET unread_count=0 WHERE id=$1`, [req.params.id]);
+    emitRealtimeEvent('messages', 'read', { id: Number(req.params.id) });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -211,10 +211,19 @@ export function CustomerEditScreen() {
               <Text style={[styles.heroStatLabel, { color: 'rgba(255,255,255,0.8)' }]}>{t('customers.points')}</Text>
               <Text style={[styles.heroStatValue, { color: '#fff' }]}>{points}</Text>
             </View>
-            <View style={styles.heroStatItem}>
+            <TouchableOpacity
+              style={styles.heroStatItem}
+              activeOpacity={0.85}
+              onPress={() =>
+                navigation.navigate('DebtInvoiceMain', {
+                  search: existing?.phone || phone || existing?.name || name,
+                  filter: 'receivable',
+                })
+              }
+            >
               <Text style={[styles.heroStatLabel, { color: 'rgba(255,255,255,0.8)' }]}>Công nợ</Text>
               <Text style={[styles.heroStatValue, { color: '#fff' }]}>{compactMoney(existing?.debt ?? 0)}</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 

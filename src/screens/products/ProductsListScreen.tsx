@@ -19,6 +19,7 @@ import { useLanguage, type TranslationKey } from '../../i18n';
 import { ApiError, getBusinessType, listMakeProducts, listProducts } from '../../services';
 import type { Product, ProductMakeItem } from '../../types';
 import { getProductPlaceholderConfig } from '../../utils/productPlaceholder';
+import { useRealtimeRefresh } from '../../realtime';
 
 type ProductListItem = Product & { sold: number };
 type StockDisplay = {
@@ -372,6 +373,7 @@ export function ProductsListScreen() {
   const handleRefresh = useCallback(() => {
     fetchProducts({ page: 1, refresh: true });
   }, [fetchProducts]);
+  useRealtimeRefresh(['products', 'inventory', 'orders'], handleRefresh);
 
   const handleLoadMore = useCallback(() => {
     if (!loading && !loadingMore && hasMore) {

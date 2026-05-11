@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LanguageProvider } from './src/i18n';
 import { ThemeProvider, useThemeMode } from './src/theme';
 import { RootNavigator } from './src/navigation';
+import { RealtimeProvider } from './src/realtime';
 
 function ThemedApp() {
   const { colors, isDark } = useThemeMode();
@@ -36,7 +37,9 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider>
           <LanguageProvider>
-            <ThemedApp />
+            <RealtimeProvider>
+              <ThemedApp />
+            </RealtimeProvider>
           </LanguageProvider>
         </ThemeProvider>
       </SafeAreaProvider>

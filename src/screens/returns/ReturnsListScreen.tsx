@@ -1,87 +1,26 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 import { ChipRow, SearchBar } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
+import {
+  approveReturnRequest,
+  executeReturnRequest,
+  listReturnRequests,
+  rejectReturnRequest,
+  type ReturnRequest,
+  type ReturnRequestStatus,
+} from '../../services';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
 
 type ReturnStatus = 'pending' | 'approved' | 'refunded' | 'rejected';
-
-interface ReturnItem {
-  id: number;
-  returnCode: string;
-  sourceOrderCode: string;
-  customerName: string;
-  reasonKey: TranslationKey;
-  itemCount: number;
-  refundAmount: number;
-  status: ReturnStatus;
-  createdAt: string;
-}
-
-const MOCK_RETURNS: ReturnItem[] = [
-  {
-    id: 1,
-    returnCode: 'TH-2412-008',
-    sourceOrderCode: 'DH00000008',
-    customerName: 'Nguyễn Thị Lan',
-    reasonKey: 'returns.reason.defective',
-    itemCount: 1,
-    refundAmount: 285000,
-    status: 'pending',
-    createdAt: '10:42',
-  },
-  {
-    id: 2,
-    returnCode: 'TH-2412-007',
-    sourceOrderCode: 'DH00000007',
-    customerName: 'Trần Văn Minh',
-    reasonKey: 'returns.reason.notSatisfied',
-    itemCount: 2,
-    refundAmount: 120000,
-    status: 'approved',
-    createdAt: '09:15',
-  },
-  {
-    id: 3,
-    returnCode: 'TH-2412-006',
-    sourceOrderCode: 'DH00000006',
-    customerName: 'Lê Thị Hoa',
-    reasonKey: 'returns.reason.wrongModel',
-    itemCount: 1,
-    refundAmount: 45000,
-    status: 'refunded',
-    createdAt: '16:20',
-  },
-  {
-    id: 4,
-    returnCode: 'TH-2412-005',
-    sourceOrderCode: 'DH00000005',
-    customerName: 'Phạm Đức Anh',
-    reasonKey: 'returns.reason.expired',
-    itemCount: 3,
-    refundAmount: 540000,
-    status: 'pending',
-    createdAt: '14:08',
-  },
-  {
-    id: 5,
-    returnCode: 'TH-2412-004',
-    sourceOrderCode: 'DH00000004',
-    customerName: 'Khách lẻ',
-    reasonKey: 'returns.reason.changeSize',
-    itemCount: 1,
-    refundAmount: 28000,
-    status: 'rejected',
-    createdAt: '2 ngày trước',
-  },
-];
 
 const STATUS_CHIPS = [
   { key: 'all', labelKey: 'messages.filter.all' },
@@ -98,6 +37,20 @@ const STATUS_META: Record<ReturnStatus, { labelKey: TranslationKey; color: strin
   rejected: { labelKey: 'returns.status.rejected', color: Colors.textSecondary, bg: Colors.border },
 };
 
+const mapStatus = (status: ReturnRequestStatus): ReturnStatus => {
+  if (status === 'completed') return 'refunded';
+  if (status === 'rejected') return 'rejected';
+  if (status === 'approved') return 'approved';
+  return 'pending';
+};
+
+const toReasonKey = (reasonKey?: string | null): TranslationKey => {
+  const value = String(reasonKey || '').trim();
+  if (!value) return 'returns.reason.other';
+  if (value.startsWith('returns.reason.')) return value as TranslationKey;
+  return `returns.reason.${value}` as TranslationKey;
+};
+
 const formatMoneyShort = (value: number) => {
   if (value >= 1_000_000) {
     return `${(value / 1_000_000).toFixed(1)}M`;
@@ -108,6 +61,20 @@ const formatMoneyShort = (value: number) => {
   return String(value);
 };
 
+const formatSystemDateTime = (value?: string) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+};
+
 export function ReturnsListScreen() {
   const { colors } = useThemeMode();
   const { t } = useLanguage();
@@ -115,21 +82,67 @@ export function ReturnsListScreen() {
   const nav = useNavigation<Nav>();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | ReturnStatus>('all');
+  const [rows, setRows] = useState<ReturnRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [actingId, setActingId] = useState('');
+
+  const loadRows = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+      const data = await listReturnRequests();
+      setRows(data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không tải được danh sách trả hàng';
+      Alert.alert('Lỗi', message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadRows();
+    }, [loadRows]),
+  );
+  const handleRefresh = useCallback(() => {
+    void loadRows(true);
+  }, [loadRows]);
+  useRealtimeRefresh(['returns'], handleRefresh);
 
   const stats = useMemo(() => {
-    const pending = MOCK_RETURNS.filter(item => item.status === 'pending').length;
-    const approved = MOCK_RETURNS.filter(item => item.status === 'approved').length;
-    const refundedAmount = MOCK_RETURNS
-      .filter(item => item.status === 'refunded')
-      .reduce((sum, item) => sum + item.refundAmount, 0);
+    const pending = rows.filter(item => mapStatus(item.status) === 'pending').length;
+    const approved = rows.filter(item => mapStatus(item.status) === 'approved').length;
+    const refundedAmount = rows
+      .filter(item => mapStatus(item.status) === 'refunded')
+      .reduce((sum, item) => sum + Number(item.total_amount || 0), 0);
     const returnRate = 1.8;
     return { pending, approved, refundedAmount, returnRate };
-  }, []);
+  }, [rows]);
+
+  const mappedItems = useMemo(
+    () =>
+      rows.map((row) => ({
+        id: row.id,
+        returnCode: row.return_code,
+        sourceOrderCode: row.source_order_code || 'N/A',
+        customerName: `NV #${row.requested_by || 'N/A'}`,
+        reasonKey: toReasonKey(row.reason_key) as TranslationKey,
+        reasonText: row.reason_text || '',
+        itemCount: Array.isArray(row.items) ? row.items.length : 0,
+        refundAmount: Number(row.total_amount || 0),
+        status: mapStatus(row.status),
+        createdAt: row.createdAt || '',
+      })),
+    [rows],
+  );
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    return MOCK_RETURNS.filter(item => {
+    return mappedItems.filter(item => {
       if (filter !== 'all' && item.status !== filter) {
         return false;
       }
@@ -142,10 +155,58 @@ export function ReturnsListScreen() {
         item.returnCode.toLowerCase().includes(query) ||
         item.sourceOrderCode.toLowerCase().includes(query) ||
         item.customerName.toLowerCase().includes(query) ||
-        t(item.reasonKey).toLowerCase().includes(query)
+        t(item.reasonKey).toLowerCase().includes(query) ||
+        item.reasonText.toLowerCase().includes(query)
       );
     });
-  }, [filter, search]);
+  }, [filter, mappedItems, search, t]);
+
+  const onApprove = async (id: string) => {
+    try {
+      setActingId(id);
+      await approveReturnRequest(id);
+      await loadRows(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Duyệt phiếu thất bại';
+      Alert.alert('Lỗi', message);
+    } finally {
+      setActingId('');
+    }
+  };
+
+  const onReject = async (id: string) => {
+    try {
+      setActingId(id);
+      await rejectReturnRequest(id, 'Từ chối từ mobile');
+      await loadRows(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Từ chối phiếu thất bại';
+      Alert.alert('Lỗi', message);
+    } finally {
+      setActingId('');
+    }
+  };
+
+  const onExecute = async (id: string) => {
+    try {
+      setActingId(id);
+      await executeReturnRequest(id);
+      await loadRows(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Thực thi hoàn tiền thất bại';
+      Alert.alert('Lỗi', message);
+    } finally {
+      setActingId('');
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -163,6 +224,7 @@ export function ReturnsListScreen() {
         data={filtered}
         keyExtractor={i => String(i.id)}
         contentContainerStyle={styles.listContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         ListHeaderComponent={
           <View>
             <View style={styles.fullBleedRow}>
@@ -203,12 +265,14 @@ export function ReturnsListScreen() {
           </View>
         }
         renderItem={({ item, index }) => (
-          <View
+          <TouchableOpacity
             style={[
               styles.card,
               index === 0 && styles.cardFirst,
               index === filtered.length - 1 && styles.cardLast,
             ]}
+            onPress={() => nav.navigate('ReturnDetail', { id: item.id })}
+            activeOpacity={0.88}
           >
             <View style={styles.cardTop}>
               <Text style={styles.returnCode}>#{item.returnCode}</Text>
@@ -227,25 +291,44 @@ export function ReturnsListScreen() {
                   {t(STATUS_META[item.status].labelKey)}
                 </Text>
               </View>
-              <Text style={styles.time}>{item.id <= 2 ? t('returns.todayAt', { time: item.createdAt }) : item.id <= 4 ? t('returns.yesterdayAt', { time: item.createdAt }) : t('returns.twoDaysAgo')}</Text>
+              <Text style={styles.time}>{formatSystemDateTime(item.createdAt)}</Text>
             </View>
-            <Text style={styles.customerName}>{item.customerName}</Text>
-            <Text style={styles.reason}>“{t(item.reasonKey)}”</Text>
+            <Text style={styles.customerName}>{item.customerName} · {item.sourceOrderCode}</Text>
+            <Text style={styles.reason}>“{item.reasonText || t(item.reasonKey)}”</Text>
             <View style={styles.cardBottom}>
               <Text style={styles.itemCount}>{t('returns.itemCount', { count: item.itemCount })}</Text>
               <Text style={styles.refund}>-{formatMoneyShort(item.refundAmount)}</Text>
             </View>
             {item.status === 'pending' && (
               <View style={styles.actions}>
-                <TouchableOpacity style={[styles.actionBtn, styles.approveBtn]}>
-                  <Text style={styles.approveTxt}>✓ {t('returns.approve')}</Text>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.approveBtn]}
+                  disabled={actingId === item.id}
+                  onPress={() => onApprove(item.id)}
+                >
+                  <Text style={styles.approveTxt}>{actingId === item.id ? '...' : `✓ ${t('returns.approve')}`}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]}>
-                  <Text style={styles.rejectTxt}>✗ {t('returns.reject')}</Text>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.rejectBtn]}
+                  disabled={actingId === item.id}
+                  onPress={() => onReject(item.id)}
+                >
+                  <Text style={styles.rejectTxt}>{actingId === item.id ? '...' : `✗ ${t('returns.reject')}`}</Text>
                 </TouchableOpacity>
               </View>
             )}
-          </View>
+            {item.status === 'approved' && (
+              <View style={styles.actions}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.approveBtn]}
+                  disabled={actingId === item.id}
+                  onPress={() => onExecute(item.id)}
+                >
+                  <Text style={styles.approveTxt}>{actingId === item.id ? '...' : '✓ Hoàn tiền'}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </TouchableOpacity>
         )}
       />
       <TouchableOpacity

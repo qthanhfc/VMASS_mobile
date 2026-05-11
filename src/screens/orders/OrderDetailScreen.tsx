@@ -179,6 +179,25 @@ export function OrderDetailScreen() {
           </View>
         </Card>
 
+        <Card style={styles.card}>
+          <TouchableOpacity
+            style={[styles.linkDebtBtn, { borderColor: colors.border }]}
+            activeOpacity={0.8}
+            onPress={() =>
+              nav.navigate('DebtInvoiceMain', {
+                search: order.orderNumber || order.customerPhone || order.customerName,
+                filter: 'receivable',
+              })
+            }
+          >
+            <View style={styles.linkDebtLeft}>
+              <Ionicons name="document-text-outline" size={17} color={Colors.primary} />
+              <Text style={styles.linkDebtText}>{t('debtInvoice.viewRelated' as never)}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </Card>
+
         <View>
           <Text style={styles.sectionTitle}>{t('orders.detail.products', { count: order.items.length })}</Text>
           <Card style={styles.listCard} padding={0}>
@@ -405,6 +424,25 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  linkDebtBtn: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  linkDebtLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  linkDebtText: {
+    ...Typography.bodySm,
+    color: Colors.text,
+    fontWeight: '700',
   },
   sectionTitle: {
     ...Typography.label,

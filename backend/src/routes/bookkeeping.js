@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/summary', async (req, res) => {
   try {
@@ -40,6 +41,8 @@ router.post('/', async (req, res) => {
       `INSERT INTO bookkeeping (type, category, amount, description, date, party, account, invoice_number) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [type, category, amount, description, date || new Date().toISOString().split('T')[0], party, account, invoice_number]
     );
+    emitRealtimeEvent('bookkeeping', 'created', { id: rows[0].id });
+    emitRealtimeEvent('dashboard', 'updated', { source: 'bookkeeping' });
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

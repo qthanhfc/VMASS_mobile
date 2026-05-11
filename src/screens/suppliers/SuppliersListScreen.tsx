@@ -1,183 +1,205 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   FlatList,
+  RefreshControl,
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 import { ChipRow, SearchBar } from '../../components';
-import { useLanguage, type TranslationKey } from '../../i18n';
+import { useLanguage } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
+import { ApiError, listSuppliers, type SupplierListItem } from '../../services';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
 
-type SupplierStatus = 'active' | 'paused';
-type SupplierCategory = 'beverage' | 'food' | 'dairy' | 'household' | 'snacks';
+type FilterKey = string;
 
-interface Supplier {
-  id: number;
-  name: string;
-  code: string;
-  category: SupplierCategory;
-  contactPerson: string;
-  phone: string;
-  currentDebt: number;
-  totalOrders: number;
-  status: SupplierStatus;
-  color: string;
-}
-
-const CATEGORY_LABEL_KEYS: Record<SupplierCategory, TranslationKey> = {
-  beverage: 'suppliers.category.beverage',
-  food: 'suppliers.category.food',
-  dairy: 'suppliers.category.dairy',
-  household: 'suppliers.category.household',
-  snacks: 'suppliers.category.snacks',
-};
-
-const MOCK_SUPPLIERS: Supplier[] = [
-  {
-    id: 1,
-    name: 'Công ty TNHH Trung Nguyên',
-    code: 'NCC-001',
-    category: 'beverage',
-    contactPerson: 'Anh Khải',
-    phone: '02812345678',
-    currentDebt: 12400000,
-    totalOrders: 42,
-    status: 'active',
-    color: '#d97757',
-  },
-  {
-    id: 2,
-    name: 'Masan Consumer',
-    code: 'NCC-002',
-    category: 'food',
-    contactPerson: 'Chị Duyên',
-    phone: '02822334455',
-    currentDebt: 0,
-    totalOrders: 58,
-    status: 'active',
-    color: '#4a9f4a',
-  },
-  {
-    id: 3,
-    name: 'Vinamilk',
-    code: 'NCC-003',
-    category: 'dairy',
-    contactPerson: 'Anh Nam',
-    phone: '02833445566',
-    currentDebt: 3800000,
-    totalOrders: 31,
-    status: 'active',
-    color: '#6b8cae',
-  },
-  {
-    id: 4,
-    name: 'Unilever Việt Nam',
-    code: 'NCC-004',
-    category: 'household',
-    contactPerson: 'Chị Hà',
-    phone: '02844556677',
-    currentDebt: 5200000,
-    totalOrders: 24,
-    status: 'active',
-    color: '#8a6a9e',
-  },
-  {
-    id: 5,
-    name: 'Mondelez Kinh Đô',
-    code: 'NCC-005',
-    category: 'snacks',
-    contactPerson: 'Anh Long',
-    phone: '02855667788',
-    currentDebt: 0,
-    totalOrders: 18,
-    status: 'active',
-    color: '#d4a574',
-  },
-  {
-    id: 6,
-    name: 'Nestlé Việt Nam',
-    code: 'NCC-006',
-    category: 'beverage',
-    contactPerson: 'Chị My',
-    phone: '02866778899',
-    currentDebt: 2100000,
-    totalOrders: 15,
-    status: 'paused',
-    color: '#b08968',
-  },
-];
-
-const FILTER_CHIPS = [
-  { key: 'all', labelKey: 'messages.filter.all' },
-  { key: 'beverage', labelKey: 'suppliers.category.beverage' },
-  { key: 'food', labelKey: 'suppliers.category.food' },
-  { key: 'dairy', labelKey: 'suppliers.category.dairy' },
-  { key: 'household', labelKey: 'suppliers.category.household' },
-  { key: 'snacks', labelKey: 'suppliers.category.snacks' },
-  { key: 'withDebt', labelKey: 'suppliers.withDebt' },
-] as const;
-
-type FilterKey = (typeof FILTER_CHIPS)[number]['key'];
+const PAGE_SIZE = 20;
 
 const formatMoneyShort = (value: number) => `${(value / 1_000_000).toFixed(1)}M`;
 
 export function SuppliersListScreen() {
   const { colors } = useThemeMode();
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const insets = useSafeAreaInsets();
   const nav = useNavigation<Nav>();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [suppliers, setSuppliers] = useState<SupplierListItem[]>([]);
+  const [totalItem, setTotalItem] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPage, setTotalPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const requestSeq = useRef(0);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  const fetchSuppliers = useCallback(
+    async ({
+      page,
+      append = false,
+      refresh = false,
+    }: {
+      page: number;
+      append?: boolean;
+      refresh?: boolean;
+    }) => {
+      const seq = requestSeq.current + 1;
+      requestSeq.current = seq;
+
+      if (append) {
+        setLoadingMore(true);
+      } else if (refresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setErrorMessage('');
+
+      try {
+        const result = await listSuppliers({
+          pageSize: PAGE_SIZE,
+          currentPage: page,
+          search: debouncedSearch,
+        });
+
+        if (requestSeq.current !== seq) return;
+
+        setSuppliers((prev) => {
+          if (!append) return result.items;
+
+          const seen = new Set(prev.map((item) => item.id));
+          return [...prev, ...result.items.filter((item) => !seen.has(item.id))];
+        });
+        setTotalItem(result.totalItem);
+        setCurrentPage(result.currentPage);
+        setTotalPage(Math.max(result.totalPage, 1));
+      } catch (error) {
+        if (requestSeq.current !== seq) return;
+
+        const message =
+          error instanceof ApiError || error instanceof Error
+            ? error.message
+            : locale === 'vi'
+              ? 'Không tải được danh sách nhà cung cấp.'
+              : 'Unable to load suppliers.';
+        setErrorMessage(message);
+        if (!append) {
+          setSuppliers([]);
+          setTotalItem(0);
+          setCurrentPage(1);
+          setTotalPage(1);
+        }
+      } finally {
+        if (requestSeq.current === seq) {
+          setLoading(false);
+          setRefreshing(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    [debouncedSearch, locale],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      setFilter('all');
+      fetchSuppliers({ page: 1 });
+    }, [fetchSuppliers]),
+  );
 
   const totalDebt = useMemo(
-    () => MOCK_SUPPLIERS.reduce((sum, supplier) => sum + supplier.currentDebt, 0),
-    []
+    () => suppliers.reduce((sum, supplier) => sum + supplier.currentDebt, 0),
+    [suppliers]
   );
   const totalOrders = useMemo(
-    () => MOCK_SUPPLIERS.reduce((sum, supplier) => sum + supplier.totalOrders, 0),
-    []
+    () => suppliers.reduce((sum, supplier) => sum + supplier.totalOrders, 0),
+    [suppliers]
   );
   const activeCount = useMemo(
-    () => MOCK_SUPPLIERS.filter(supplier => supplier.status === 'active').length,
-    []
+    () => suppliers.filter(supplier => supplier.status === 'active').length,
+    [suppliers]
   );
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const filterChips = useMemo(() => {
+    return [
+      { key: 'all', label: t('messages.filter.all') },
+      { key: 'withDebt', label: t('suppliers.withDebt') },
+      { key: 'noDebt', label: locale === 'vi' ? 'Đã thanh toán' : 'No debt' },
+      { key: 'hasOrders', label: locale === 'vi' ? 'Có đơn nhập' : 'Has imports' },
+    ];
+  }, [locale, t]);
 
-    return MOCK_SUPPLIERS.filter(supplier => {
-      const categoryMatched =
+  const filtered = useMemo(() => {
+    return suppliers.filter(supplier => {
+      const filterMatched =
         filter === 'all'
           ? true
           : filter === 'withDebt'
             ? supplier.currentDebt > 0
-            : supplier.category === filter;
+            : filter === 'noDebt'
+              ? supplier.currentDebt <= 0
+              : filter === 'hasOrders'
+                ? supplier.totalOrders > 0
+                : true;
 
-      if (!categoryMatched) {
-        return false;
-      }
-
-      if (!query) {
-        return true;
-      }
-
-      return (
-        supplier.name.toLowerCase().includes(query) ||
-        supplier.code.toLowerCase().includes(query) ||
-        supplier.phone.includes(query) ||
-        supplier.contactPerson.toLowerCase().includes(query)
-      );
+      return filterMatched;
     });
-  }, [filter, search]);
+  }, [filter, suppliers]);
+
+  const hasMore = currentPage < totalPage;
+
+  const handleRefresh = useCallback(() => {
+    fetchSuppliers({ page: 1, refresh: true });
+  }, [fetchSuppliers]);
+  useRealtimeRefresh(['suppliers'], handleRefresh);
+
+  const handleLoadMore = useCallback(() => {
+    if (!loading && !loadingMore && hasMore) {
+      fetchSuppliers({ page: currentPage + 1, append: true });
+    }
+  }, [currentPage, fetchSuppliers, hasMore, loading, loadingMore]);
+
+  const renderFooter = () => {
+    if (loadingMore) {
+      return (
+        <View style={styles.loadMoreWrap}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={[styles.loadMoreText, { color: colors.textSecondary }]}>
+            {locale === 'vi' ? 'Đang tải thêm...' : 'Loading more...'}
+          </Text>
+        </View>
+      );
+    }
+
+    if (!suppliers.length) return null;
+
+    return (
+      <Text style={[styles.loadMoreText, { color: colors.textSecondary }]}>
+        {hasMore
+          ? `${suppliers.length}/${totalItem}`
+          : locale === 'vi'
+            ? 'Đã tải tất cả nhà cung cấp'
+            : 'All suppliers loaded'}
+      </Text>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -188,7 +210,7 @@ export function SuppliersListScreen() {
         <View style={styles.headerMain}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>{t('suppliers.title')}</Text>
           <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
-            {t('suppliers.subtitle', { count: MOCK_SUPPLIERS.length, debt: formatMoneyShort(totalDebt) })}
+            {t('suppliers.subtitle', { count: totalItem, debt: formatMoneyShort(totalDebt) })}
           </Text>
         </View>
       </View>
@@ -205,7 +227,7 @@ export function SuppliersListScreen() {
 
             <View style={styles.statsRow}>
               {[
-                { label: t('suppliers.stat.total'), value: String(MOCK_SUPPLIERS.length), color: colors.text },
+                { label: t('suppliers.stat.total'), value: String(totalItem), color: colors.text },
                 { label: t('suppliers.stat.active'), value: String(activeCount), color: Colors.success },
                 { label: t('suppliers.stat.debt'), value: formatMoneyShort(totalDebt), color: Colors.accent },
                 { label: t('suppliers.stat.purchaseOrders'), value: String(totalOrders), color: Colors.primary },
@@ -218,16 +240,46 @@ export function SuppliersListScreen() {
             </View>
 
             <View style={[styles.fullBleedRow, styles.filterBleedRow]}>
-              <ChipRow chips={FILTER_CHIPS.map(chip => ({ key: chip.key, label: t(chip.labelKey) }))} selected={filter} onSelect={key => setFilter(key as FilterKey)} />
+              <ChipRow chips={filterChips} selected={filter} onSelect={key => setFilter(key as FilterKey)} />
             </View>
+
+            {errorMessage ? (
+              <View style={[styles.errorBanner, { borderColor: colors.border }]}>
+                <Ionicons name="warning-outline" size={16} color={Colors.danger} />
+                <Text style={styles.errorText} numberOfLines={2}>{errorMessage}</Text>
+                <TouchableOpacity onPress={() => fetchSuppliers({ page: 1 })}>
+                  <Text style={styles.retryText}>{locale === 'vi' ? 'Thử lại' : 'Retry'}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         }
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Ionicons name="search-outline" size={24} color={Colors.textSecondary} />
-            <Text style={styles.emptyText}>{t('suppliers.empty')}</Text>
-          </View>
+          loading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                {locale === 'vi' ? 'Đang tải nhà cung cấp...' : 'Loading suppliers...'}
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.emptyWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="search-outline" size={24} color={Colors.textSecondary} />
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{t('suppliers.empty')}</Text>
+            </View>
+          )
         }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+            onRefresh={handleRefresh}
+          />
+        }
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.35}
+        ListFooterComponent={renderFooter}
         renderItem={({ item, index }) => (
           <TouchableOpacity
             style={[
@@ -235,6 +287,7 @@ export function SuppliersListScreen() {
               index === 0 && styles.rowFirst,
               index === filtered.length - 1 && styles.rowLast,
               item.status === 'paused' && styles.rowPaused,
+              { backgroundColor: colors.card, borderTopColor: colors.border },
             ]}
             onPress={() => nav.navigate('SupplierEdit', { id: item.id })}
             activeOpacity={0.85}
@@ -244,22 +297,25 @@ export function SuppliersListScreen() {
             </View>
 
             <View style={styles.infoCol}>
-              <Text style={styles.name} numberOfLines={1}>
+              <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
                 {item.name}
               </Text>
-              <Text style={styles.meta}>
-                {item.code} · {t(CATEGORY_LABEL_KEYS[item.category])}
+              <Text style={[styles.meta, { color: colors.textSecondary }]}>
+                {item.code}
               </Text>
               <View style={styles.bottomRow}>
-                <Text style={styles.ordersText}>{t('suppliers.purchaseOrderCount', { count: item.totalOrders })}</Text>
-                <Text
-                  style={[
-                    styles.debtText,
-                    { color: item.currentDebt > 0 ? Colors.accent : Colors.success },
-                  ]}
-                >
-                  {t('suppliers.debtValue', { value: item.currentDebt > 0 ? formatMoneyShort(item.currentDebt) : '0' })}
+                <Text style={[styles.ordersText, { color: colors.textSecondary }]}>
+                  {locale === 'vi'
+                    ? `${item.totalOrders} mặt hàng nhập`
+                    : `${item.totalOrders} imported items`}
                 </Text>
+                {item.currentDebt > 0 ? (
+                  <Text style={[styles.debtText, { color: Colors.accent }]}>
+                    {locale === 'vi'
+                      ? `· nợ ${formatMoneyShort(item.currentDebt)}`
+                      : `· debt ${formatMoneyShort(item.currentDebt)}`}
+                  </Text>
+                ) : null}
               </View>
             </View>
 
@@ -419,6 +475,47 @@ const styles = StyleSheet.create({
   emptyText: {
     ...Typography.body,
     color: Colors.textSecondary,
+  },
+  loadingState: {
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  loadingText: {
+    ...Typography.bodySm,
+    marginTop: 10,
+  },
+  errorBanner: {
+    marginBottom: Spacing.sm,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    backgroundColor: Colors.dangerLight,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  errorText: {
+    ...Typography.caption,
+    color: Colors.danger,
+    flex: 1,
+  },
+  retryText: {
+    ...Typography.captionMd,
+    color: Colors.danger,
+    fontWeight: '700',
+  },
+  loadMoreWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: Spacing.md,
+  },
+  loadMoreText: {
+    ...Typography.caption,
+    textAlign: 'center',
+    paddingVertical: Spacing.md,
   },
   fabPill: {
     position: 'absolute',

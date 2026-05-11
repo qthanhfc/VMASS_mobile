@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { emitRealtimeEvent } = require('../realtime');
 
 router.get('/', async (req, res) => {
   try {
@@ -32,6 +33,7 @@ router.post('/', async (req, res) => {
       `INSERT INTO customers (name, phone, email, address, notes) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
       [name, phone, email, address, notes]
     );
+    emitRealtimeEvent('customers', 'created', { id: rows[0].id });
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -43,6 +45,7 @@ router.put('/:id', async (req, res) => {
       `UPDATE customers SET name=$1, phone=$2, email=$3, address=$4, notes=$5, tier=$6, points=$7, updated_at=NOW() WHERE id=$8 RETURNING *`,
       [name, phone, email, address, notes, tier, points, req.params.id]
     );
+    emitRealtimeEvent('customers', 'updated', { id: rows[0]?.id || Number(req.params.id) });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -50,6 +53,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     await db.query('DELETE FROM customers WHERE id=$1', [req.params.id]);
+    emitRealtimeEvent('customers', 'deleted', { id: Number(req.params.id) });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

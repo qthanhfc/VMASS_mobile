@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { sendFeedbackEmail } = require('../services/feedbackEmail');
+const { emitRealtimeEvent } = require('../realtime');
 
 const VALID_CATEGORIES = new Set(['feature', 'improvement', 'bug', 'other']);
 const FEEDBACK_SAVE_TIMEOUT_MS = Number(process.env.FEEDBACK_SAVE_TIMEOUT_MS || 2500);
@@ -119,6 +120,7 @@ router.post('/', async (req, res) => {
       email: emailResult,
       warning: saveError ? 'Không thể lưu góp ý vào database, nhưng request đã được xử lý.' : undefined,
     });
+    emitRealtimeEvent('feedback', 'created', { id: savedFeedback?.id || null });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

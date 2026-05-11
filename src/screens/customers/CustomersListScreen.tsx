@@ -15,6 +15,7 @@ import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../..
 import { Header, SearchBar, ChipRow } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import { Customer } from '../../types';
 import {
   getCachedCustomers,
@@ -336,6 +337,7 @@ export function CustomersListScreen() {
   const handleRefresh = useCallback(() => {
     loadCustomers(1, { silent: true });
   }, [loadCustomers]);
+  useRealtimeRefresh(['customers', 'orders'], handleRefresh);
 
   const handleLoadMore = useCallback(() => {
     if (loading || loadingMore || !hasMore) return;

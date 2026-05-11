@@ -2,12 +2,14 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BottomTabBarProps, createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { CommonActions } from '@react-navigation/native';
 import { NavigatorScreenParams } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage, type TranslationKey } from '../i18n';
 import { Colors, Typography, useThemeMode } from '../theme';
 import { MessagesProvider, useMessages } from '../screens/messages/MessagesContext';
+import type { Staff, StaffId } from '../types';
 
 // ─── Param Lists ────────────────────────────────────────────────────────────
 
@@ -39,15 +41,23 @@ export type ManageStackParamList = {
   InventoryEdit: { mode?: 'import' | 'export' | 'transfer' | 'audit'; scanItems?: ScanActionItem[] } | undefined;
   InventoryStockForm: { stockId?: number } | undefined;
   StaffList: undefined;
-  StaffEdit: { id?: number };
+  StaffEdit: { id?: StaffId; preview?: Staff };
+  StaffRoleDetail: { roleId: string; roleName: string };
   SuppliersList: undefined;
-  SupplierEdit: { id?: number };
+  SupplierEdit: { id?: number | string };
   ReturnsList: undefined;
   ReturnCreate: undefined;
+  ReturnDetail: { id: string };
   PromotionsList: undefined;
   PromotionEdit: { id?: number };
   BookkeepingMain: undefined;
   BookkeepingEntry: undefined;
+  DebtInvoiceMain: {
+    search?: string;
+    filter?: 'all' | 'receivable' | 'payable' | 'overdue' | 'open' | 'settled';
+  } | undefined;
+  DebtInvoiceDetail: { id: string };
+  DebtInvoicePayment: { id: string };
   TaxMain: undefined;
   EcommerceMain: undefined;
   QrScan: undefined;
@@ -70,7 +80,7 @@ export type SettingsStackParamList = {
   ProfileSettings: undefined;
   PosSettings: undefined;
   PrintSettings: undefined;
-  RoleSettings: undefined;
+  RoleSettings: { focusRoleId?: string; focusRoleName?: string; returnToManage?: boolean } | undefined;
   StaffAccountSettings: undefined;
   ChangePassword: undefined;
   DocsWebView: undefined;
@@ -104,14 +114,19 @@ import { InventoryEditScreen } from '../screens/inventory/InventoryEditScreen';
 import { InventoryStockFormScreen } from '../screens/inventory/InventoryStockFormScreen';
 import { StaffListScreen } from '../screens/staff/StaffListScreen';
 import { StaffEditScreen } from '../screens/staff/StaffEditScreen';
+import { StaffRoleDetailScreen } from '../screens/staff/StaffRoleDetailScreen';
 import { SuppliersListScreen } from '../screens/suppliers/SuppliersListScreen';
 import { SupplierEditScreen } from '../screens/suppliers/SupplierEditScreen';
 import { ReturnsListScreen } from '../screens/returns/ReturnsListScreen';
 import { ReturnCreateScreen } from '../screens/returns/ReturnCreateScreen';
+import { ReturnRequestDetailScreen } from '../screens/returns/ReturnRequestDetailScreen';
 import { PromotionsListScreen } from '../screens/promotions/PromotionsListScreen';
 import { PromotionEditScreen } from '../screens/promotions/PromotionEditScreen';
 import { BookkeepingScreen } from '../screens/bookkeeping/BookkeepingScreen';
 import { BookkeepingEntryScreen } from '../screens/bookkeeping/BookkeepingEntryScreen';
+import { DebtInvoiceScreen } from '../screens/debt-invoice/DebtInvoiceScreen';
+import { DebtInvoiceDetailScreen } from '../screens/debt-invoice/DebtInvoiceDetailScreen';
+import { DebtInvoicePaymentScreen } from '../screens/debt-invoice/DebtInvoicePaymentScreen';
 import { TaxScreen } from '../screens/tax/TaxScreen';
 import { EcommerceScreen } from '../screens/ecommerce/EcommerceScreen';
 import { QrScanScreen } from '../screens/qr/QrScanScreen';
@@ -148,14 +163,19 @@ function ManageStackNavigator() {
       <ManageStack.Screen name="InventoryStockForm" component={InventoryStockFormScreen} />
       <ManageStack.Screen name="StaffList" component={StaffListScreen} />
       <ManageStack.Screen name="StaffEdit" component={StaffEditScreen} />
+      <ManageStack.Screen name="StaffRoleDetail" component={StaffRoleDetailScreen} />
       <ManageStack.Screen name="SuppliersList" component={SuppliersListScreen} />
       <ManageStack.Screen name="SupplierEdit" component={SupplierEditScreen} />
       <ManageStack.Screen name="ReturnsList" component={ReturnsListScreen} />
       <ManageStack.Screen name="ReturnCreate" component={ReturnCreateScreen} />
+      <ManageStack.Screen name="ReturnDetail" component={ReturnRequestDetailScreen} />
       <ManageStack.Screen name="PromotionsList" component={PromotionsListScreen} />
       <ManageStack.Screen name="PromotionEdit" component={PromotionEditScreen} />
       <ManageStack.Screen name="BookkeepingMain" component={BookkeepingScreen} />
       <ManageStack.Screen name="BookkeepingEntry" component={BookkeepingEntryScreen} />
+      <ManageStack.Screen name="DebtInvoiceMain" component={DebtInvoiceScreen} />
+      <ManageStack.Screen name="DebtInvoiceDetail" component={DebtInvoiceDetailScreen} />
+      <ManageStack.Screen name="DebtInvoicePayment" component={DebtInvoicePaymentScreen} />
       <ManageStack.Screen name="TaxMain" component={TaxScreen} />
       <ManageStack.Screen name="EcommerceMain" component={EcommerceScreen} />
       <ManageStack.Screen name="QrScan" component={QrScanScreen} />
@@ -232,8 +252,12 @@ function SketchVariantTwoTabBar({ state, descriptors, navigation }: BottomTabBar
   const shouldHideTabBar = Boolean(
     settingsNestedState && settingsNestedState.index > 0 && settingsActiveNestedRoute !== 'RoleSettings'
   );
+  const shouldHideForManageRoute = Boolean(
+    activeTabName === 'Manage' &&
+    (manageActiveNestedRoute === 'PosScreen')
+  );
 
-  if (shouldHideTabBar) {
+  if (shouldHideTabBar || shouldHideForManageRoute) {
     return null;
   }
 
@@ -270,10 +294,17 @@ function SketchVariantTwoTabBar({ state, descriptors, navigation }: BottomTabBar
       }
 
       if (route.name === 'Manage') {
-        if (activeTabName === 'Manage' && manageActiveNestedRoute === 'QrScan') {
-          navigation.navigate('Manage', { screen: 'ManageMain' });
+        navigation.navigate('Manage');
+        if (manageNestedState?.key) {
+          navigation.dispatch({
+            ...CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'ManageMain' as never }],
+            }),
+            target: manageNestedState.key,
+          });
         } else {
-          navigation.navigate('Manage');
+          navigation.navigate('Manage', { screen: 'ManageMain' });
         }
         return;
       }
@@ -354,7 +385,11 @@ function AppTabs() {
       }}
     >
       <Tab.Screen name="Home" component={HomeStackNavigator} />
-      <Tab.Screen name="Manage" component={ManageStackNavigator} />
+      <Tab.Screen
+        name="Manage"
+        component={ManageStackNavigator}
+        options={{ popToTopOnBlur: true }}
+      />
       <Tab.Screen name="Scan" component={QrScanScreen} />
       <Tab.Screen name="Messages" component={MessagesStackNavigator} />
       <Tab.Screen name="Settings" component={SettingsStackNavigator} />

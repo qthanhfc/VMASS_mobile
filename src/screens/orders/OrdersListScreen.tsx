@@ -17,6 +17,7 @@ import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../..
 import { Header, SearchBar } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import {
   getCachedOrders,
   listOrders,
@@ -147,6 +148,7 @@ export function OrdersListScreen() {
     setRefreshing(true);
     loadOrderPage(1, { silent: true });
   }, [loadOrderPage]);
+  useRealtimeRefresh(['orders', 'products', 'inventory'], onRefresh);
 
   const loadMore = useCallback(() => {
     if (loading || loadingMore || currentPage >= totalPage) return;
