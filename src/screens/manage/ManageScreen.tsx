@@ -11,13 +11,14 @@ import {
   Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 import { Card, SearchBar, SectionHeader } from '../../components';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import {
   ApiError,
   connectPlatform,
@@ -227,6 +228,7 @@ export function ManageScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useThemeMode();
   const { dateLocale, t } = useLanguage();
+  const isFocused = useIsFocused();
   const navigation = useNavigation<NavProp>();
   const [search, setSearch] = useState('');
   const [recentProducts, setRecentProducts] = useState<Product[]>([]);
@@ -369,6 +371,28 @@ export function ManageScreen() {
       loadPlatformSummary();
       loadSectionStats();
     }, [loadPlatformSummary, loadRecentProducts, loadSectionStats]),
+  );
+
+  useRealtimeRefresh(
+    [
+      'orders',
+      'products',
+      'customers',
+      'suppliers',
+      'returns',
+      'promotions',
+      'staff',
+      'inventory',
+      'dashboard',
+      'bookkeeping',
+      'tax',
+    ],
+    () => {
+      loadRecentProducts();
+      loadPlatformSummary();
+      loadSectionStats();
+    },
+    { debounceMs: 600, enabled: isFocused },
   );
 
   function navigate(key: keyof ManageStackParamList, params?: any) {

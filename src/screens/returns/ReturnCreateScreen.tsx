@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Modal, Pressable, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
 import { FormField, Card } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
+import { useRealtimeRefresh } from '../../realtime';
 import {
   createReturnRequest,
   listReturnRequests,
@@ -51,6 +52,7 @@ export function ReturnCreateScreen() {
   const { colors } = useThemeMode();
   const { locale, t } = useLanguage();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const nav = useNavigation();
   const [orderNum, setOrderNum] = useState('');
   const [debouncedOrderNum, setDebouncedOrderNum] = useState('');
@@ -101,7 +103,7 @@ export function ReturnCreateScreen() {
     return slots;
   }, [calendarMonth]);
 
-  const loadHistory = async (sDate: Date, eDate: Date) => {
+  const loadHistory = useCallback(async (sDate: Date, eDate: Date) => {
     try {
       setLoadingHistory(true);
       const rows = await listReturnableOrderHistory(toYmd(sDate), toYmd(eDate));
@@ -113,7 +115,21 @@ export function ReturnCreateScreen() {
     } finally {
       setLoadingHistory(false);
     }
-  };
+  }, []);
+
+  const loadTicketSequence = useCallback(async () => {
+    try {
+      const rows = await listReturnRequests();
+      const todayYmd = toYmd(new Date());
+      const countToday = rows.filter((row) => {
+        const created = String(row.createdAt || '');
+        return created.slice(0, 10) === todayYmd;
+      }).length;
+      setTicketSequence(countToday + 1);
+    } catch {
+      setTicketSequence(1);
+    }
+  }, []);
 
   useEffect(() => {
     const run = async () => {
@@ -130,24 +146,8 @@ export function ReturnCreateScreen() {
       }
     };
     run();
-  }, []);
-
-  useEffect(() => {
-    const run = async () => {
-      try {
-        const rows = await listReturnRequests();
-        const todayYmd = toYmd(new Date());
-        const countToday = rows.filter((row) => {
-          const created = String(row.createdAt || '');
-          return created.slice(0, 10) === todayYmd;
-        }).length;
-        setTicketSequence(countToday + 1);
-      } catch {
-        setTicketSequence(1);
-      }
-    };
-    run();
-  }, []);
+    void loadTicketSequence();
+  }, [loadHistory, loadTicketSequence]);
 
   const filteredItems = useMemo(() => {
     const query = orderNum.trim().toLowerCase();
@@ -191,7 +191,41 @@ export function ReturnCreateScreen() {
     };
 
     run();
-  }, [dateMode, debouncedOrderNum, endDate, isPhoneSearchMode, startDate]);
+  }, [dateMode, debouncedOrderNum, endDate, isPhoneSearchMode, loadHistory, startDate]);
+
+  const reloadCurrentHistory = useCallback(async () => {
+    const query = debouncedOrderNum.replace(/[^\d+]/g, '');
+    const isPhoneQuery = /^(\+?\d{9,13})$/.test(query);
+
+    if (isPhoneQuery) {
+      try {
+        setLoadingHistory(true);
+        setIsPhoneSearchMode(true);
+        const rows = await listReturnableOrderHistoryByPhone(query);
+        setHistoryItems(rows);
+        setSelectedItems({});
+      } catch {
+        // Realtime refresh should stay silent to avoid interrupting user flow.
+      } finally {
+        setLoadingHistory(false);
+      }
+      return;
+    }
+
+    setIsPhoneSearchMode(false);
+    const from = startDate;
+    const to = dateMode === 'single' ? startDate : endDate;
+    await loadHistory(from, to);
+  }, [dateMode, debouncedOrderNum, endDate, loadHistory, startDate]);
+
+  useRealtimeRefresh(
+    ['returns', 'orders'],
+    () => {
+      void loadTicketSequence();
+      void reloadCurrentHistory();
+    },
+    { debounceMs: 500, enabled: isFocused },
+  );
 
   const selectedCount = useMemo(
     () => filteredItems.filter(item => selectedItems[item.itemKey]).length,

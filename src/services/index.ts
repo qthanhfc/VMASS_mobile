@@ -16,5 +16,8 @@ export * from './debtInvoices';
 export * from './ecommerce';
 export * from './home';
 export * from './pos';
+export * from './messages';
 
 export * from './tax';
+export * from './printer';
+export * from './otgPrinter';

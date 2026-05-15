@@ -353,7 +353,7 @@ function StaffEditScreen({ dark = false, lang = 'vi', variant = 1 }) {
             🏪 {vi ? 'Vị trí & chi nhánh' : 'Role & store'}
           </div>
           <FormField label={vi ? 'Chức vụ' : 'Position'} value="Thu ngân" dropdown dark={dark}/>
-          <FormField label={vi ? 'Chi nhánh' : 'Store'} value="CH Chính" dropdown dark={dark}/>
+          <FormField label={vi ? 'Chi nhánh' : 'Store'} value="CH Quận 1" dropdown dark={dark}/>
           <FormField label={vi ? 'Ca làm việc' : 'Shift'} value="Sáng · 7h-15h" dropdown dark={dark}/>
         </SBox>
 

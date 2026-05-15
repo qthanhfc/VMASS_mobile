@@ -7,7 +7,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -522,8 +522,8 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
   logo: {
-    width: 154,
-    height: 50,
+    width: 186,
+    height: 60,
     borderRadius: Radius.sm,
   },
   title: {

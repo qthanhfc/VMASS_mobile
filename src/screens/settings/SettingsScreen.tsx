@@ -10,6 +10,7 @@ import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../..
 import {
   getCurrentUserLicense,
   getCurrentUserProfile,
+  getPrinterConnectionSummary,
   PASSWORD_LAST_CHANGED_AT_KEY,
   resolvePublicImageUrl,
   signOut,
@@ -146,6 +147,7 @@ export function SettingsScreen() {
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [license, setLicense] = useState<UserLicense | null>(null);
+  const [printerSummary, setPrinterSummary] = useState<string>('Chưa kết nối');
   const [lastPasswordChangedText, setLastPasswordChangedText] = useState<string | null>(null);
 
   useFocusEffect(
@@ -191,8 +193,22 @@ export function SettingsScreen() {
         }
       };
 
+      const loadPrinterSummary = async () => {
+        try {
+          const summary = await getPrinterConnectionSummary();
+          if (isMounted) {
+            setPrinterSummary(summary);
+          }
+        } catch {
+          if (isMounted) {
+            setPrinterSummary('Chưa kết nối');
+          }
+        }
+      };
+
       loadLastChanged();
       loadProfile();
+      loadPrinterSummary();
 
       return () => {
         isMounted = false;
@@ -308,6 +324,10 @@ export function SettingsScreen() {
     navigation.push('PrintSettings');
   };
 
+  const openPrinterConnection = () => {
+    navigation.push('PrinterConnection');
+  };
+
   const profileName = getProfileText(profile?.fullname, t('settings.vmassUser'));
   const profileEmail = getProfileText(profile?.email, t('common.updatedNotAvailable'));
   const profileCompanyName = getProfileText(profile?.companyName, t('settings.accountInfo'));
@@ -407,9 +427,9 @@ export function SettingsScreen() {
           <ListItem
             title={t('settings.printerConnection')}
             left={iconBox('print-outline', Colors.primary)}
-            right={rightSummary('Xprinter XP-80')}
+            right={rightSummary(printerSummary)}
             showChevron={false}
-            onPress={() => {}}
+            onPress={openPrinterConnection}
           />
         </View>
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../..
 import { Header } from '../../components';
 import { useLanguage } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import { Customer, Order } from '../../types';
 import { getCustomerDetail, type CustomerDetail, type CustomerOrderHistory, type CustomerTopProduct } from '../../services';
 
@@ -80,6 +81,19 @@ export function CustomerEditScreen() {
   const [loading, setLoading] = useState(isEdit);
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
 
+  const loadDetail = useCallback(async () => {
+    if (!hasIdentity) return;
+    try {
+      const data = await getCustomerDetail({ id: editId, phone: editPhone });
+      setDetail(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải dữ liệu khách hàng.';
+      Alert.alert(t('common.error'), message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [editId, editPhone, hasIdentity, navigation, t]);
+
   useEffect(() => {
     let isMounted = true;
     if (!hasIdentity) return;
@@ -104,6 +118,10 @@ export function CustomerEditScreen() {
       isMounted = false;
     };
   }, [editId, editPhone, hasIdentity, navigation, t]);
+  useRealtimeRefresh(['customers', 'orders'], () => {
+    if (!hasIdentity) return;
+    void loadDetail();
+  });
 
   const existing = detail?.customer ?? null;
 

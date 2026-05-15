@@ -3119,7 +3119,7 @@ function KpiCard(_ref2) {
 var viStrings = {
   hello: 'Xin chào',
   dashboard: 'Dashboard',
-  storeA: 'CH Chính',
+  storeA: 'CH Quận 1',
   today: 'Hôm nay',
   revenueToday: 'Doanh thu hôm nay',
   vsYesterday: 'so với hôm qua',
@@ -6079,6 +6079,8 @@ mount();
 <script type="text/babel" src="components/list-screens.jsx" data-plugins="transform-react-jsx-source" data-filename="components/list-screens.jsx"></script>
 <script type="text/babel" src="components/list-screens-2.jsx" data-plugins="transform-react-jsx-source" data-filename="components/list-screens-2.jsx"></script>
 <script type="text/babel" src="components/edit-screens-2.jsx" data-plugins="transform-react-jsx-source" data-filename="components/edit-screens-2.jsx"></script>
+<script type="text/babel" src="components/accounting-books.jsx" data-plugins="transform-react-jsx-source" data-filename="components/accounting-books.jsx"></script>
+<script type="text/babel" src="components/finance-detail.jsx" data-plugins="transform-react-jsx-source" data-filename="components/finance-detail.jsx"></script>
 
 <script type="text/babel" data-plugins="transform-react-jsx-source" data-filename="inline-7">
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -6130,6 +6132,15 @@ function FullScreen({ tab = 'home', variant = 1, dark = false, lang = 'vi', dens
   else if (tab === 'set-receipt') { screen = <ReceiptTemplateScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
   else if (tab === 'set-scanner') { screen = <ScannerConfigScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
   else if (tab === 'set-pos') { screen = <PosConfigScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'set'; }
+  else if (tab === 'book-sales') { screen = <SalesBookScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'book-purchase') { screen = <PurchaseBookScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'book-cash') { screen = <CashBookScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'book-debt') { screen = <DebtBookScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'book-stock') { screen = <StockBookScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'book-payroll') { screen = <PayrollBookScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'manage'; }
+  else if (tab === 'revenue-detail') { screen = <RevenueDetailScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'home'; }
+  else if (tab === 'expense-detail') { screen = <ExpenseDetailScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'home'; }
+  else if (tab === 'chart-detail') { screen = <ChartDetailScreen dark={dark} lang={lang} variant={variant}/>; activeTab = 'home'; }
 
   return (
     <SketchPhone dark={dark} label={label}>
@@ -6363,6 +6374,71 @@ function OverviewCanvas({ variant, dark, lang, density }) {
         </DCPostIt>
       </div>
 
+      {/* SECTION — Chi tiết drill-down từ Trang chủ */}
+      <div style={{ padding: '40px 60px 20px', maxWidth: 1400 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(40,30,20,0.95)', marginBottom: 8, letterSpacing: -0.5 }}>
+          {lang === 'vi' ? '⑨ Drill-down từ card Trang chủ' : '⑨ Home card drill-down'}
+        </div>
+        <div style={{ fontSize: 14, color: 'rgba(60,50,40,0.6)', maxWidth: 760 }}>
+          {lang === 'vi'
+            ? 'Bấm vào card Doanh thu / Chi phí / Biểu đồ trên Trang chủ → mở màn chi tiết. Có chip chọn mốc thời gian (Hôm nay / Tuần / Tháng / Quý / Năm / Tuỳ chọn) và breakdown đầy đủ theo nguồn.'
+            : 'Tap Revenue / Expense / Chart card on Home → opens detail. Period chips (Today / Week / Month / Quarter / Year / Custom) and full source breakdown.'}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 48, padding: '24px 60px 80px', flexWrap: 'wrap', position: 'relative' }}>
+        <FullScreen tab="revenue-detail" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '42. 💰 Chi tiết doanh thu' : '42. 💰 Revenue detail'}/>
+        <FullScreen tab="expense-detail" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '43. 💸 Chi tiết chi phí' : '43. 💸 Expense detail'}/>
+        <FullScreen tab="chart-detail" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '44. 📈 Biểu đồ chi tiết' : '44. 📈 Chart detail'}/>
+        <DCPostIt top={-30} left={640} rotate={-2}>
+          {lang === 'vi'
+            ? 'DT: bán hàng vs thu khác · CP: COGS vs OPEX · Chart: bar/line + so sánh kỳ trước + top ngành'
+            : 'Rev: sales vs other · Exp: COGS vs OPEX · Chart: bar/line + prev-period compare + top cats'}
+        </DCPostIt>
+      </div>
+
+      {/* SECTION — Sổ sách kế toán chi tiết (TT 88/2021/TT-BTC) */}
+      <div style={{ padding: '40px 60px 20px', maxWidth: 1400 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(40,30,20,0.95)', marginBottom: 8, letterSpacing: -0.5 }}>
+          {lang === 'vi' ? '⑧ Sổ sách kế toán chi tiết' : '⑧ Detailed accounting books'}
+        </div>
+        <div style={{ fontSize: 14, color: 'rgba(60,50,40,0.6)', maxWidth: 760 }}>
+          {lang === 'vi'
+            ? '6 sổ chi tiết theo Thông tư 88/2021/TT-BTC dành cho hộ kinh doanh — bán hàng, mua hàng, quỹ tiền mặt, công nợ, tồn kho, tiền lương. Bố cục bảng kế toán dạng STT — Ngày/Chứng từ — Diễn giải — Số tiền với hàng tổng cuối kỳ.'
+            : '6 detail ledgers per Circular 88/2021/TT-BTC for household businesses — sales, purchase, cash, debt, stock, payroll. Accounting-style table layout with period totals.'}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 48, padding: '24px 60px 20px', flexWrap: 'wrap', position: 'relative' }}>
+        <FullScreen tab="book-sales" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '36. S1 — Sổ bán hàng' : '36. S1 — Sales ledger'}/>
+        <FullScreen tab="book-purchase" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '37. S2 — Sổ mua hàng' : '37. S2 — Purchase ledger'}/>
+        <FullScreen tab="book-cash" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '38. S3 — Sổ quỹ thu chi' : '38. S3 — Cash book'}/>
+        <DCPostIt top={-30} left={640} rotate={-3}>
+          {lang === 'vi'
+            ? 'Cùng layout: BookHeader (mã sổ + kỳ) → BalanceBar 4 ô → chips lọc → bảng ledger → footer tổng'
+            : 'Same layout: BookHeader (code + period) → 4-cell BalanceBar → filter chips → ledger table → total footer'}
+        </DCPostIt>
+      </div>
+
+      <div style={{ display: 'flex', gap: 48, padding: '20px 60px 80px', flexWrap: 'wrap', position: 'relative' }}>
+        <FullScreen tab="book-debt" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '39. S4 — Sổ công nợ' : '39. S4 — Debt book'}/>
+        <FullScreen tab="book-stock" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '40. S5 — Sổ tồn kho' : '40. S5 — Stock ledger'}/>
+        <FullScreen tab="book-payroll" variant={variant} dark={dark} lang={lang} density={density}
+                    label={lang === 'vi' ? '41. S6 — Sổ tiền lương' : '41. S6 — Payroll ledger'}/>
+        <DCPostIt top={-30} left={640} rotate={2}>
+          {lang === 'vi'
+            ? 'S4 tách Phải thu/Phải trả · S5 mở chi tiết theo SKU với BQGQ · S6 hiển thị BHXH/BHYT/BHTN/TNCN'
+            : 'S4: receivable/payable split · S5: per-SKU with weighted avg · S6: full statutory deductions'}
+        </DCPostIt>
+      </div>
+
       {/* SECTION — Cài đặt chi tiết */}
       <div style={{ padding: '40px 60px 20px', maxWidth: 1400 }}>
         <div style={{ fontSize: 28, fontWeight: 800, color: 'rgba(40,30,20,0.95)', marginBottom: 8, letterSpacing: -0.5 }}>
@@ -6423,6 +6499,9 @@ function SingleView({ variant, dark, lang, density, view }) {
     'bookkeeping-edit': 'bookkeeping-edit',
     'set-roles': 'set-roles', 'set-profile': 'set-profile', 'set-stores': 'set-stores',
     'set-receipt': 'set-receipt', 'set-scanner': 'set-scanner', 'set-pos': 'set-pos',
+    'book-sales': 'book-sales', 'book-purchase': 'book-purchase', 'book-cash': 'book-cash',
+    'book-debt': 'book-debt', 'book-stock': 'book-stock', 'book-payroll': 'book-payroll',
+    'revenue-detail': 'revenue-detail', 'expense-detail': 'expense-detail', 'chart-detail': 'chart-detail',
   };
   const tab = tabMap[view] || 'home';
   return (
@@ -6511,6 +6590,15 @@ function App() {
     { k: 'set-receipt', l: '⚙ Mẫu hóa đơn / Receipt' },
     { k: 'set-scanner', l: '⚙ Máy quét mã vạch / Scanner' },
     { k: 'set-pos', l: '⚙ Cấu hình POS / POS config' },
+    { k: 'book-sales', l: '📒 S1 — Sổ bán hàng / Sales ledger' },
+    { k: 'book-purchase', l: '📒 S2 — Sổ mua hàng / Purchase ledger' },
+    { k: 'book-cash', l: '📒 S3 — Sổ quỹ thu chi / Cash book' },
+    { k: 'book-debt', l: '📒 S4 — Sổ công nợ / Debt book' },
+    { k: 'book-stock', l: '📒 S5 — Sổ tồn kho / Stock ledger' },
+    { k: 'book-payroll', l: '📒 S6 — Sổ tiền lương / Payroll ledger' },
+    { k: 'revenue-detail', l: '💰 Chi tiết doanh thu / Revenue detail' },
+    { k: 'expense-detail', l: '💸 Chi tiết chi phí / Expense detail' },
+    { k: 'chart-detail', l: '📈 Biểu đồ chi tiết / Chart detail' },
   ];
 
   return (

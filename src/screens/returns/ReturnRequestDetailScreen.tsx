@@ -5,6 +5,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, FormField, Header } from '../../components';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import { Colors, Radius, Spacing, Typography, useThemeMode } from '../../theme';
 import {
   approveReturnRequest,
@@ -52,6 +53,7 @@ export function ReturnRequestDetailScreen() {
   useEffect(() => {
     load();
   }, [load]);
+  useRealtimeRefresh(['returns'], load);
 
   const money = useMemo(
     () => (value: number) => `${(value || 0).toLocaleString('vi-VN')} đ`,

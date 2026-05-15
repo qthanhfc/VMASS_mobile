@@ -5,7 +5,6 @@ import {
   ImageBackground,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -311,8 +311,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   logo: {
-    width: 145,
-    height: 40,
+    width: 320,
+    height: 90,
+    alignSelf: 'flex-start',
     marginTop: Spacing.lg,
   },
   title: {

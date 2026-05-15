@@ -2,7 +2,7 @@
   "expo": {
     "name": "VMASS",
     "slug": "vmass",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,10 +20,15 @@
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "congty.vmass",
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -44,6 +49,11 @@
       ],
       "expo-audio",
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5141e84c-bc06-462f-b0d8-c5d0c3d07a0c"
+      }
+    }
   }
 }

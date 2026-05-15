@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Image, ImageSourcePropType, Alert, Linking } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../../theme';
@@ -14,6 +14,7 @@ import {
   type EcommercePlatformKey,
   type EcommercePlatformSummary,
 } from '../../services';
+import { useRealtimeRefresh } from '../../realtime';
 
 type PlatformVisual = {
   key: EcommercePlatformKey;
@@ -51,6 +52,7 @@ export function EcommerceScreen() {
   const { colors } = useThemeMode();
   const { t } = useLanguage();
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [platforms, setPlatforms] = useState<EcommercePlatformSummary[]>([]);
@@ -87,6 +89,12 @@ export function EcommerceScreen() {
     useCallback(() => {
       loadPlatforms();
     }, [loadPlatforms]),
+  );
+
+  useRealtimeRefresh(
+    ['orders', 'products', 'inventory'],
+    loadPlatforms,
+    { debounceMs: 600, enabled: isFocused },
   );
 
   const connectedPlatforms = useMemo(() => platforms.filter(platform => platform.connected), [platforms]);

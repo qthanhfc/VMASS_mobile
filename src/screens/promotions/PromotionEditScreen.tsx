@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadow, Spacing, Typography, useThemeMode } from '../../theme';
 import { useLanguage } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import {
   ApiError,
   createPromotion,
@@ -134,6 +135,7 @@ export function PromotionEditScreen() {
   useEffect(() => {
     loadPromotion();
   }, [loadPromotion]);
+  useRealtimeRefresh(['promotions'], loadPromotion);
 
   useEffect(() => {
     let mounted = true;

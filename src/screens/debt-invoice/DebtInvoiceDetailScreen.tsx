@@ -8,6 +8,7 @@ import { useLanguage } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
 import { Colors, Radius, Spacing, Typography, useThemeMode } from '../../theme';
 import { getDebtInvoiceDetail, type DebtInvoiceDetail } from '../../services';
+import { useRealtimeRefresh } from '../../realtime';
 
 type Route = RouteProp<ManageStackParamList, 'DebtInvoiceDetail'>;
 type Nav = NativeStackNavigationProp<ManageStackParamList, 'DebtInvoiceDetail'>;
@@ -44,6 +45,12 @@ export function DebtInvoiceDetailScreen() {
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
+
+  useRealtimeRefresh(
+    ['orders', 'customers', 'inventory'],
+    loadDetail,
+    { debounceMs: 500 },
+  );
 
   const statusColor = useMemo(() => {
     if (!detail) return Colors.primary;

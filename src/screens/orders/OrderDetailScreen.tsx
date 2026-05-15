@@ -7,6 +7,7 @@ import { Colors, Spacing, Typography, Radius, Shadow, useThemeMode } from '../..
 import { Header, Card } from '../../components';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import { getCachedOrderDetail, getOrderDetail, type OrderDetail } from '../../services';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
@@ -78,6 +79,7 @@ export function OrderDetailScreen() {
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
+  useRealtimeRefresh(['orders', 'inventory', 'products'], loadDetail);
 
   const currentStep = order ? STATUS_STEPS.indexOf(order.status) : 0;
   const progressPercent = `${(Math.max(0, currentStep) / (STATUS_STEPS.length - 1)) * 100}%` as `${number}%`;

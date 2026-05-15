@@ -8,8 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { RouteProp, useRoute } from '@react-navigation/native';
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, ChipRow, Header, SearchBar } from '../../components';
@@ -22,6 +21,7 @@ import {
   type DebtInvoiceFilter,
   type DebtInvoiceListItem,
 } from '../../services';
+import { useRealtimeRefresh } from '../../realtime';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList, 'DebtInvoiceMain'>;
 type DebtRoute = RouteProp<ManageStackParamList, 'DebtInvoiceMain'>;
@@ -82,6 +82,7 @@ export function DebtInvoiceScreen() {
   const { t, dateLocale } = useLanguage();
   const navigation = useNavigation<Nav>();
   const route = useRoute<DebtRoute>();
+  const isFocused = useIsFocused();
   const [search, setSearch] = useState(route.params?.search || '');
   const [debouncedSearch, setDebouncedSearch] = useState(route.params?.search || '');
   const [filter, setFilter] = useState<DebtInvoiceFilter>(route.params?.filter || 'all');
@@ -155,6 +156,12 @@ export function DebtInvoiceScreen() {
       isMounted = false;
     };
   }, [hydrateFromCache, loadData]);
+
+  useRealtimeRefresh(
+    ['orders', 'customers', 'inventory'],
+    () => { void loadData({ silent: true }); },
+    { debounceMs: 500, enabled: isFocused },
+  );
 
   useEffect(() => {
     const timeout = setTimeout(() => {

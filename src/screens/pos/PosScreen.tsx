@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -15,16 +15,18 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadow, Spacing, Typography, useThemeMode } from '../../theme';
 import { ManageStackParamList, ScanActionItem } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import {
   calculateShippingFee,
   ApiError,
   createGuestOrderDone,
   createGuestPending,
   createShippingOrder,
+  printPosReceiptViaConfiguredPrinter,
   getCurrentUserProfile,
   getEInvoiceConfig,
   getAvailablePromotions,
@@ -244,6 +246,31 @@ const resolveVariantOptionPrice = (
   return Number.isFinite(base) ? base : 0;
 };
 
+const resolveVariantOptionStock = (
+  product: Product,
+  attrKey: string,
+  attrValue: string,
+  selectedAttributes: Record<string, { label: string; value: string }>,
+) => {
+  const variants = product.variants || [];
+  const normalizedKey = attrKey.toLowerCase();
+  const candidates = variants.filter((variant) => {
+    const value = variant.attributes?.[attrKey]?.value;
+    return String(value || '') === attrValue;
+  });
+  if (!candidates.length) return 0;
+
+  const scoped = candidates.filter((variant) =>
+    Object.entries(selectedAttributes).every(([key, selected]) => {
+      if (key.toLowerCase() === normalizedKey) return true;
+      return String(variant.attributes?.[key]?.value || '') === String(selected.value || '');
+    }),
+  );
+  const pool = scoped.length > 0 ? scoped : candidates;
+  const quantity = pool.reduce((sum, variant) => sum + Math.max(0, Number(variant.quantity || 0)), 0);
+  return Number.isFinite(quantity) ? quantity : 0;
+};
+
 const resolveMatchedVariant = (
   product: Product,
   selectedAttributes: Record<string, { label: string; value: string }>,
@@ -366,7 +393,7 @@ const parsePercentOptionValues = (options?: ProductVariantOption[]) => {
     .filter(Boolean)
     .map((text) => text.replace('%', '').trim())
     .filter((text) => /^\d+$/.test(text));
-  return Array.from(new Set(values));
+  return Array.from(new Set(values)).sort((a, b) => Number(a) - Number(b));
 };
 
 const isMeaningfulOptionText = (value: unknown) => {
@@ -393,6 +420,7 @@ export function PosScreen() {
   const { colors } = useThemeMode();
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
+  const isFocused = useIsFocused();
   const route = useRoute<PosRoute>();
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -445,6 +473,9 @@ export function PosScreen() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [printStatus, setPrintStatus] = useState('');
+  const [printStatusError, setPrintStatusError] = useState(false);
+  const [realtimeReloadTick, setRealtimeReloadTick] = useState(0);
   const requestSeq = useRef(0);
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [isCartSheetVisible, setIsCartSheetVisible] = useState(false);
@@ -453,44 +484,55 @@ export function PosScreen() {
   const customizeSheetTranslateY = useRef(new Animated.Value(32)).current;
   const customizeBackdropOpacity = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const seq = requestSeq.current + 1;
-      requestSeq.current = seq;
+  const loadPosBootstrap = useCallback(async (showLoader = true) => {
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
+    if (showLoader) {
       setLoadingProducts(true);
-      setLoadError('');
+    }
+    setLoadError('');
 
-      try {
-        const profile: Partial<UserProfile> = await getCurrentUserProfile().catch(() => ({}));
-        const resolvedUserId = String(profile.id || '').trim();
-        const [productRes, shippingProviders, businessTypeRes, eInvoiceConfig] = await Promise.all([
-          listProducts({ pageSize: PAGE_SIZE, currentPage: 1, search: '' }),
-          listConnectedShippingProviders().catch(() => []),
-          getBusinessType().catch(() => ''),
-          resolvedUserId ? getEInvoiceConfig(resolvedUserId).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
-        ]);
-        if (requestSeq.current !== seq) return;
-        setCurrentUserId(resolvedUserId);
-        setProducts(productRes.items.filter((item) => item.status === 'active'));
-        setConnectedShippingProviders(shippingProviders.map((item) => String(item.provider)));
-        setBusinessType(String(businessTypeRes || ''));
-        if (eInvoiceConfig?.data?.is_active) {
-          setEInvoiceEnabled(true);
-          setIssueEInvoiceChecked(Boolean(eInvoiceConfig.data.auto_issue));
-          setEInvoiceVatRate(Number(eInvoiceConfig.data.vat_rate || 10));
-          setCreateDraftWhenNotIssue(Boolean(eInvoiceConfig.data.create_draft_when_not_issue ?? true));
-        }
-      } catch (error) {
-        if (requestSeq.current !== seq) return;
-        const message = error instanceof ApiError || error instanceof Error ? error.message : 'Không tải được dữ liệu POS';
-        setLoadError(message);
-      } finally {
-        if (requestSeq.current === seq) setLoadingProducts(false);
+    try {
+      const profile: Partial<UserProfile> = await getCurrentUserProfile().catch(() => ({}));
+      const resolvedUserId = String(profile.id || '').trim();
+      const [productRes, shippingProviders, businessTypeRes, eInvoiceConfig] = await Promise.all([
+        listProducts({ pageSize: PAGE_SIZE, currentPage: 1, search: '' }),
+        listConnectedShippingProviders().catch(() => []),
+        getBusinessType().catch(() => ''),
+        resolvedUserId ? getEInvoiceConfig(resolvedUserId).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
+      ]);
+      if (requestSeq.current !== seq) return;
+      setCurrentUserId(resolvedUserId);
+      setProducts(productRes.items.filter((item) => item.status === 'active'));
+      setConnectedShippingProviders(shippingProviders.map((item) => String(item.provider)));
+      setBusinessType(String(businessTypeRes || ''));
+      if (eInvoiceConfig?.data?.is_active) {
+        setEInvoiceEnabled(true);
+        setIssueEInvoiceChecked(Boolean(eInvoiceConfig.data.auto_issue));
+        setEInvoiceVatRate(Number(eInvoiceConfig.data.vat_rate || 10));
+        setCreateDraftWhenNotIssue(Boolean(eInvoiceConfig.data.create_draft_when_not_issue ?? true));
       }
-    };
-
-    fetchData();
+    } catch (error) {
+      if (requestSeq.current !== seq) return;
+      const message = error instanceof ApiError || error instanceof Error ? error.message : 'Không tải được dữ liệu POS';
+      setLoadError(message);
+    } finally {
+      if (requestSeq.current === seq) setLoadingProducts(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadPosBootstrap(true);
+  }, [loadPosBootstrap]);
+
+  useRealtimeRefresh(
+    ['products', 'inventory', 'orders', 'promotions', 'customers'],
+    () => {
+      void loadPosBootstrap(false);
+      setRealtimeReloadTick((current) => current + 1);
+    },
+    { debounceMs: 500, enabled: isFocused },
+  );
 
   useEffect(() => {
     const scanItems = route.params?.scanItems || [];
@@ -684,7 +726,7 @@ export function PosScreen() {
     }, 350);
 
     return () => clearTimeout(timeout);
-  }, [cart, customerPhone]);
+  }, [cart, customerPhone, realtimeReloadTick]);
 
   const categories = useMemo(() => {
     const values = Array.from(new Set(products.map((item) => item.category).filter(Boolean)));
@@ -738,11 +780,6 @@ export function PosScreen() {
       };
     });
     // Temporary debug log to validate variant option payload from API.
-    console.log('[POS][VariantOptionsDebug]', {
-      productId: customizeState.product.id,
-      productName: customizeState.product.name,
-      options: payload,
-    });
   }, [customizeState, customizeVariantEntries]);
   const validRegularSizes = useMemo(
     () =>
@@ -973,6 +1010,8 @@ export function PosScreen() {
     if (submitting || cart.length === 0) return;
     setSubmitting(true);
     setSubmitError('');
+    setPrintStatus('');
+    setPrintStatusError(false);
 
     try {
       const profile: Partial<UserProfile> = await getCurrentUserProfile().catch(() => ({}));
@@ -1087,6 +1126,7 @@ export function PosScreen() {
       }
 
       const billId = checkoutResult?.bill_id;
+      const billIdText = String(billId || '').trim();
 
       if (billId && shippingProvider && shippingAddress.trim() && shippingDistrict?.value) {
         const totalWeight = cart.reduce((sum, item) => sum + item.qty * 200, 0) || 500;
@@ -1151,6 +1191,37 @@ export function PosScreen() {
             giftItems: picked?.giftItems || null,
             orderTotal: total,
           }).catch(() => null);
+        }
+      }
+
+      if (mode === 'paid' && billIdText) {
+        const paymentMethodLabel =
+          PAY_METHODS.find((item) => item.key === payMethod)?.label || payMethod;
+
+        const printResult = await printPosReceiptViaConfiguredPrinter({
+          billId: billIdText,
+          storeName: String(profile.companyName || profile.domain || 'VMASS').trim() || 'VMASS',
+          customerName: customerName.trim() || undefined,
+          customerPhone: customerPhone.trim() || undefined,
+          paymentMethodLabel,
+          subtotal,
+          discountAmount: discountAmt + promoDiscountAmt,
+          taxAmount: taxAmt,
+          feeOtherAmount: feeOtherAmt,
+          shippingAmount: shippingAmt,
+          totalAmount: total,
+          items: cart.map((item) => ({
+            name: item.productName,
+            qty: item.qty,
+            unitPrice: item.unitPrice,
+            lineTotal: item.unitPrice * item.qty,
+          })),
+          printedAt: new Date(),
+        });
+
+        if (printResult.message) {
+          setPrintStatus(printResult.message);
+          setPrintStatusError(!printResult.success);
         }
       }
 
@@ -1523,6 +1594,9 @@ export function PosScreen() {
 
           {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
           {shippingOrderCreated ? <Text style={styles.successText}>Mã vận đơn: {shippingOrderCreated}</Text> : null}
+          {printStatus ? (
+            <Text style={printStatusError ? styles.errorText : styles.successText}>{printStatus}</Text>
+          ) : null}
 
           <View style={styles.actionsRow}>
             <TouchableOpacity
@@ -1586,10 +1660,16 @@ export function PosScreen() {
                             .map((option) => {
                               const active = customizeState.selectedAttributes[key]?.value === option.value;
                               const optionPrice = resolveVariantOptionPrice(
-                                  customizeState.product,
-                                  key,
-                                  option.value,
-                                  customizeState.selectedAttributes,
+                                customizeState.product,
+                                key,
+                                option.value,
+                                customizeState.selectedAttributes,
+                              );
+                              const optionStock = resolveVariantOptionStock(
+                                customizeState.product,
+                                key,
+                                option.value,
+                                customizeState.selectedAttributes,
                               );
                               return (
                                 <TouchableOpacity
@@ -1609,7 +1689,10 @@ export function PosScreen() {
                                     )
                                   }
                                 >
-                                  <Text style={[styles.optionLineName, active && styles.optionLineTextActive]}>{option.label}</Text>
+                                  <View style={styles.optionLineLeft}>
+                                    <Text style={[styles.optionLineName, active && styles.optionLineTextActive]}>{option.label}</Text>
+                                    <Text style={[styles.optionLineStock, active && styles.optionLineTextActive]}>Tồn: {optionStock}</Text>
+                                  </View>
                                   <Text style={[styles.optionLinePrice, active && styles.optionLineTextActive]}>
                                     {formatMoney(optionPrice)}
                                   </Text>
@@ -1669,7 +1752,7 @@ export function PosScreen() {
                             >
                               <Text style={[styles.optionLineName, active && styles.optionLineTextActive]}>{size.name}</Text>
                               <Text style={[styles.optionLinePrice, active && styles.optionLineTextActive]}>
-                                +{formatMoney(parseOptionPrice(size))}
+                                {formatMoney(parseOptionPrice(size))}
                               </Text>
                             </TouchableOpacity>
                           );
@@ -2027,7 +2110,9 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   optionLineItemActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  optionLineLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 },
   optionLineName: { ...Typography.captionMd, color: Colors.text },
+  optionLineStock: { ...Typography.caption, color: Colors.textSecondary },
   optionLinePrice: { ...Typography.captionMd, color: Colors.textSecondary },
   optionLineTextActive: { color: Colors.primary },
   optionLevelRow: { flexDirection: 'row', gap: 6 },

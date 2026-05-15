@@ -182,7 +182,7 @@ function KpiCard({ icon, label, value, trend, dark }) {
 const viStrings = {
   hello: 'Xin chào',
   dashboard: 'Dashboard',
-  storeA: 'CH Chính',
+  storeA: 'CH Quận 1',
   today: 'Hôm nay',
   revenueToday: 'Doanh thu hôm nay',
   vsYesterday: 'so với hôm qua',

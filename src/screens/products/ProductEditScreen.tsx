@@ -41,6 +41,7 @@ import {
   saveCustomUnitForBusinessType,
 } from '../../utils/productUnits';
 import { useLanguage } from '../../i18n';
+import { useRealtimeRefresh } from '../../realtime';
 
 type RouteParams = {
   ProductEdit: { id?: number };
@@ -809,6 +810,10 @@ export function ProductEditScreen() {
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
+  useRealtimeRefresh(['products', 'inventory', 'orders'], () => {
+    if (!editId) return;
+    loadDetail(true);
+  });
 
   useEffect(() => {
     if (!editId) {

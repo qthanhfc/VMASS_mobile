@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ActivityIndicator,
@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadow, Spacing, Typography, useThemeMode } from '../../theme';
 import { useLanguage } from '../../i18n';
 import { ManageStackParamList } from '../../navigation';
+import { useRealtimeRefresh } from '../../realtime';
 import { createSupplier, deleteSupplier, getSupplierDetail, getSupplierImportLogs, paySupplierItemDebt, updateSupplier } from '../../services';
 
 type Nav = NativeStackNavigationProp<ManageStackParamList>;
@@ -123,7 +124,7 @@ export function SupplierEditScreen() {
     bankName: '',
   });
 
-  const loadDetail = async () => {
+  const loadDetail = useCallback(async () => {
     const [detail, logs] = await Promise.all([getSupplierDetail(supplierId), getSupplierImportLogs(supplierId)]);
     setForm((prev) => ({
       ...prev,
@@ -142,7 +143,7 @@ export function SupplierEditScreen() {
     setPurchaseValue(detail.totalIncome);
     setSuppliedItems(detail.items || []);
     setImportEntries((logs || []).filter((x) => x.logType.toLowerCase() !== 'payment'));
-  };
+  }, [supplierId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -188,6 +189,10 @@ export function SupplierEditScreen() {
       isMounted = false;
     };
   }, [isEdit, nav, supplierId, t]);
+  useRealtimeRefresh(['suppliers', 'inventory'], () => {
+    if (!isEdit) return;
+    void loadDetail();
+  });
 
   const set = (key: keyof typeof form) => (value: string) =>
     setForm(prev => ({ ...prev, [key]: value }));

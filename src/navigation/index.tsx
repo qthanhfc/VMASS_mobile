@@ -80,6 +80,7 @@ export type SettingsStackParamList = {
   ProfileSettings: undefined;
   PosSettings: undefined;
   PrintSettings: undefined;
+  PrinterConnection: undefined;
   RoleSettings: { focusRoleId?: string; focusRoleName?: string; returnToManage?: boolean } | undefined;
   StaffAccountSettings: undefined;
   ChangePassword: undefined;
@@ -98,6 +99,7 @@ import { UpgradeAccountScreen } from '../screens/settings/UpgradeAccountScreen';
 import { ProfileSettingsScreen } from '../screens/settings/ProfileSettingsScreen';
 import { PosSettingsScreen } from '../screens/settings/PosSettingsScreen';
 import { PrintSettingsScreen } from '../screens/settings/PrintSettingsScreen';
+import { PrinterConnectionScreen } from '../screens/settings/PrinterConnectionScreen';
 import { RoleSettingsScreen } from '../screens/settings/RoleSettingsScreen';
 import { StaffAccountScreen } from '../screens/settings/StaffAccountScreen';
 import { ChangePasswordScreen } from '../screens/settings/ChangePasswordScreen';
@@ -202,6 +204,7 @@ function SettingsStackNavigator() {
       <SettingsStack.Screen name="ProfileSettings" component={ProfileSettingsScreen} />
       <SettingsStack.Screen name="PosSettings" component={PosSettingsScreen} />
       <SettingsStack.Screen name="PrintSettings" component={PrintSettingsScreen} />
+      <SettingsStack.Screen name="PrinterConnection" component={PrinterConnectionScreen} />
       <SettingsStack.Screen name="RoleSettings" component={RoleSettingsScreen} />
       <SettingsStack.Screen name="StaffAccountSettings" component={StaffAccountScreen} />
       <SettingsStack.Screen name="ChangePassword" component={ChangePasswordScreen} />
