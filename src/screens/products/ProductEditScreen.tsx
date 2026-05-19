@@ -5,11 +5,14 @@ import {
   Animated,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
+  FlatList,
   StyleSheet,
   Text,
   TextInput,
@@ -19,14 +22,18 @@ import {
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Radius, Shadow, Spacing, Typography, useThemeMode } from '../../theme';
+import { Colors, Radius, Shadow, Typography, useThemeMode } from '../../theme';
 import {
   createBrand,
   createCategory,
+  createProduct,
   getBusinessType,
   getProductDetail,
   importProducts,
+  listAllProducts,
+  listMakeProducts,
   listBrands,
   listCategories,
   listStocks,
@@ -34,7 +41,7 @@ import {
   updateProduct,
 } from '../../services/products';
 import type { ProductBrand, ProductCategory, StockUnit } from '../../services/products';
-import type { Product, ProductMakeItem, ProductStock, ProductVariant, ProductVariantOption } from '../../types';
+import type { Product, ProductComboItem, ProductMakeItem, ProductStock, ProductVariant, ProductVariantOption } from '../../types';
 import {
   getUnitsForBusinessType,
   loadCustomUnitsForBusinessType,
@@ -58,11 +65,14 @@ type FieldCardProps = {
   value: string;
   onChangeText?: (text: string) => void;
   onPress?: () => void;
+  onScanPress?: () => void;
+  onClearPress?: () => void;
   placeholder?: string;
   mono?: boolean;
   highlight?: boolean;
   dropdown?: boolean;
   scan?: boolean;
+  clearable?: boolean;
   editable?: boolean;
   disabled?: boolean;
   keyboardType?: 'default' | 'numeric';
@@ -127,10 +137,18 @@ type RecipeIngredient = {
   quantity: string;
   price: string;
   is_new_stock: boolean;
+  stock_count?: string;
   stock_quantity?: string;
   stock_cost_price?: string;
   stock_supplier?: string;
   stock_paid?: string;
+};
+
+type ComboProductDraft = {
+  id: string;
+  product_id?: number | null;
+  product_name: string;
+  quantity: string;
 };
 
 function FieldCard({
@@ -138,15 +156,20 @@ function FieldCard({
   value,
   onChangeText,
   onPress,
+  onScanPress,
+  onClearPress,
   placeholder,
   mono = false,
   highlight = false,
   dropdown = false,
   scan = false,
+  clearable = false,
   editable = true,
   disabled = false,
   keyboardType = 'default',
 }: FieldCardProps) {
+  const canClear = clearable && Boolean(value.trim()) && Boolean(onClearPress) && !disabled;
+
   const fieldContent = (
     <>
       <TextInput
@@ -154,12 +177,33 @@ function FieldCard({
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={Colors.textSecondary}
-        style={[styles.fieldInput, mono && styles.fieldInputMono]}
+        style={[styles.fieldInput, mono && styles.fieldInputMono, disabled && styles.fieldInputDisabled]}
         keyboardType={keyboardType}
         editable={!disabled && editable && !onPress}
         pointerEvents={onPress ? 'none' : 'auto'}
       />
-      {scan && <Ionicons name="qr-code" size={16} color={Colors.primary} />}
+      {canClear && (
+        <TouchableOpacity
+          onPress={(event) => {
+            event.stopPropagation();
+            onClearPress?.();
+          }}
+          disabled={disabled}
+          style={styles.fieldIconButton}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
+        </TouchableOpacity>
+      )}
+      {scan ? (
+        onScanPress ? (
+          <TouchableOpacity onPress={onScanPress} disabled={disabled} style={styles.fieldIconButton} activeOpacity={0.85}>
+            <Ionicons name="qr-code" size={16} color={Colors.primary} />
+          </TouchableOpacity>
+        ) : (
+          <Ionicons name="qr-code" size={16} color={Colors.primary} />
+        )
+      ) : null}
       {dropdown && <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />}
     </>
   );
@@ -334,8 +378,6 @@ function CategorySelectModal({
 const isFnBBusiness = (businessType: string) =>
   businessType === 'cafe' || businessType === 'restaurant';
 
-const isFashionBusiness = (businessType: string) => businessType === 'fashion';
-
 const isRetailBusiness = (businessType: string) => businessType === 'retail';
 
 const IMAGE_LIMIT = 8;
@@ -369,6 +411,112 @@ const isRecipeIngredientConfigured = (ingredient: RecipeIngredient) =>
     parseCurrency(ingredient.price || ingredient.stock_cost_price || ''),
   );
 
+const buildComboDraftId = () => `combo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const mergeBrandOptions = (current: ProductBrand[], incoming: ProductBrand[]) => {
+  const byName = new Map<string, ProductBrand>();
+  [...incoming, ...current].forEach((item) => {
+    const nameKey = item.name.trim().toLowerCase();
+    if (!nameKey) return;
+    if (!byName.has(nameKey)) {
+      byName.set(nameKey, item);
+      return;
+    }
+    const existing = byName.get(nameKey)!;
+    if ((item.id || 0) > (existing.id || 0)) {
+      byName.set(nameKey, item);
+    }
+  });
+  return Array.from(byName.values());
+};
+
+const mapComboItemToDraft = (item: ProductComboItem, index: number): ComboProductDraft => ({
+  id: `combo-${item.productId}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+  product_id: item.productId,
+  product_name: item.productName || '',
+  quantity: formatNumberInput(item.quantity || 1) || '1',
+});
+
+const formatQuantityValue = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) return '0';
+  if (Math.abs(value - Math.round(value)) < 0.000001) return String(Math.round(value));
+  return value.toFixed(4).replace(/\.?0+$/, '');
+};
+
+const expandComboProductsToIngredients = (
+  comboItems: ComboProductDraft[],
+  allMakeProducts: ProductMakeItem[],
+) => {
+  const ingredientMap = new Map<
+    string,
+    {
+      stockId: number;
+      stockName: string;
+      unit: string;
+      quantity: number;
+      price: number;
+      stockCount: number;
+    }
+  >();
+  const unresolved: Array<{ productId?: number | null; productName: string }> = [];
+
+  comboItems.forEach((comboItem) => {
+    const productId = comboItem.product_id ?? null;
+    const productName = comboItem.product_name.trim();
+    const comboQty = Math.max(0, parseDecimalInput(comboItem.quantity || '0'));
+    if (!productId || comboQty <= 0) return;
+
+    const makeProductsForChild = allMakeProducts.filter(
+      (item) => item.productId === productId && item.stock?.id,
+    );
+
+    if (makeProductsForChild.length === 0) {
+      unresolved.push({ productId, productName });
+      return;
+    }
+
+    makeProductsForChild.forEach((item) => {
+      const stock = item.stock;
+      const stockId = stock?.id;
+      if (!stockId) return;
+
+      const usageQty = Math.max(0, Number(item.count || 0)) * comboQty;
+      if (usageQty <= 0) return;
+
+      const key = String(stockId);
+      const cost = Math.max(0, stock.averagePrice || stock.latestPrice || 0);
+      const stockCount = Math.max(0, Number(stock.count || 0));
+
+      const existing = ingredientMap.get(key);
+      if (existing) {
+        existing.quantity += usageQty;
+      } else {
+        ingredientMap.set(key, {
+          stockId,
+          stockName: stock.name,
+          unit: stock.unit || '',
+          quantity: usageQty,
+          price: cost,
+          stockCount,
+        });
+      }
+    });
+  });
+
+  const ingredients: RecipeIngredient[] = Array.from(ingredientMap.values()).map((item) => ({
+    id: `combo-stock-${item.stockId}`,
+    stock_id: item.stockId,
+    stock_name: item.stockName,
+    unit: item.unit,
+    quantity: formatQuantityValue(item.quantity),
+    price: formatNumberInput(item.price),
+    is_new_stock: false,
+    stock_count: formatNumberInput(item.stockCount),
+  }));
+
+  return { ingredients, unresolved };
+};
+
 const formatNumberInput = (value?: number | string | null) => {
   const digits = String(value ?? '').replace(/\D/g, '');
   if (!digits) return '';
@@ -384,15 +532,93 @@ const optionName = (option?: ProductVariantOption) =>
   option?.name || option?.label || option?.value || '';
 
 const FNB_PERCENT_OPTIONS = ['0', '25', '50', '75', '100'];
+const FNB_DEFAULT_SIZE_NAMES = ['Size S', 'Size M', 'Size L'];
+
+const makeFnbOption = (name = '', value = '0', promoPrice = '0'): ProductVariantOption => ({
+  id: `${name || 'opt'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  name,
+  label: name,
+  value,
+  promo_price: promoPrice,
+});
+
+const normalizeFnbOption = (option: ProductVariantOption): ProductVariantOption => {
+  const name = optionName(option).trim();
+  return {
+    ...option,
+    id: option.id ?? `${name || 'opt'}-${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    label: name,
+    value: formatNumberInput(String(option.value ?? '0')) || '0',
+    promo_price: formatNumberInput(String(option.promo_price ?? '0')) || '0',
+  };
+};
+
+const buildFnbSizeOptions = (source: ProductVariantOption[] = []) => {
+  const normalized = source
+    .map(normalizeFnbOption)
+    .filter((option) => optionName(option).trim().length > 0);
+  const next = [...normalized];
+  const lowerNames = new Set(next.map((option) => optionName(option).trim().toLowerCase()));
+
+  FNB_DEFAULT_SIZE_NAMES.forEach((defaultName) => {
+    if (!lowerNames.has(defaultName.toLowerCase())) {
+      next.push(makeFnbOption(defaultName, '0', '0'));
+    }
+  });
+
+  return next;
+};
+
+const buildFnbToppingOptions = (source: ProductVariantOption[] = []) =>
+  source
+    .map(normalizeFnbOption)
+    .filter((option) => optionName(option).trim().length > 0);
 
 const toImportOption = (option: ProductVariantOption | string): ProductVariantOption => {
   const name = typeof option === 'string' ? option : optionName(option);
+  const value =
+    typeof option === 'string'
+      ? option
+      : String(option.value ?? option.name ?? option.label ?? name);
   return {
     ...(typeof option === 'string' ? {} : option),
     name,
-    label: name,
-    value: name,
+    label: typeof option === 'string' ? name : (option.label ?? name),
+    value,
   };
+};
+
+const isRemoteImageUri = (uri?: string | null) => {
+  if (!uri) return false;
+  return /^https?:\/\//i.test(uri.trim());
+};
+
+const isDataImageUri = (uri?: string | null) => {
+  if (!uri) return false;
+  return /^data:image\//i.test(uri.trim());
+};
+
+const isUploadableLocalUri = (uri?: string | null) => {
+  if (!uri) return false;
+  return /^(file|content|ph|assets-library):/i.test(uri.trim());
+};
+
+const guessUploadMimeType = (uri: string, fallbackUri?: string) => {
+  const lowerUri = uri.toLowerCase();
+  if (lowerUri.endsWith('.png') || fallbackUri?.startsWith('data:image/png')) return 'image/png';
+  if (lowerUri.endsWith('.webp') || fallbackUri?.startsWith('data:image/webp')) return 'image/webp';
+  if (fallbackUri?.startsWith('data:image/')) {
+    const mime = fallbackUri.slice(5, fallbackUri.indexOf(';'));
+    if (mime) return mime;
+  }
+  return 'image/jpeg';
+};
+
+const buildUploadFilename = (uri: string, index: number) => {
+  const extensionMatch = uri.split('?')[0].match(/\.(jpe?g|png|webp|heic)$/i);
+  const extension = extensionMatch ? extensionMatch[1].toLowerCase().replace('jpeg', 'jpg') : 'jpg';
+  return `product-mobile-${Date.now()}-${index}.${extension}`;
 };
 
 const getOrderedOptionWeight = (name: string, index: number) => {
@@ -491,6 +717,9 @@ const formatVariantName = (variant: DisplayVariant) => {
 
 const getVariantPrice = (variant: DisplayVariant) =>
   'cost_price' in variant ? parseCurrency(variant.price) : variant.price;
+
+const getVariantCost = (variant: DisplayVariant) =>
+  'cost_price' in variant ? parseCurrency(variant.cost_price) : variant.costPrice;
 
 const getVariantPromoPrice = (variant: DisplayVariant) =>
   'promo_price' in variant ? parseCurrency(variant.promo_price) : variant.promoPrice || 0;
@@ -651,6 +880,8 @@ export function ProductEditScreen() {
   const [product, setProduct] = useState<Product | null>(null);
   const [businessType, setBusinessType] = useState('');
   const [makeProducts, setMakeProducts] = useState<ProductMakeItem[]>([]);
+  const [allMakeProducts, setAllMakeProducts] = useState<ProductMakeItem[]>([]);
+  const [comboProductsCatalog, setComboProductsCatalog] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [categoryId, setCategoryId] = useState<number | undefined>();
   const [categoryModalVisible, setCategoryModalVisible] = useState(false);
@@ -663,6 +894,9 @@ export function ProductEditScreen() {
   const [brandSearch, setBrandSearch] = useState('');
   const [loadingBrands, setLoadingBrands] = useState(false);
   const [creatingBrand, setCreatingBrand] = useState(false);
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [activeSupplierIngredientId, setActiveSupplierIngredientId] = useState<string | null>(null);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
   const [backendUnits, setBackendUnits] = useState<StockUnit[]>([]);
   const [customUnits, setCustomUnits] = useState<string[]>([]);
   const [unitModalVisible, setUnitModalVisible] = useState(false);
@@ -681,6 +915,11 @@ export function ProductEditScreen() {
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  const [scannerPaused, setScannerPaused] = useState(false);
+  const recipeSheetTranslateY = useRef(new Animated.Value(32)).current;
+  const variantSheetTranslateY = useRef(new Animated.Value(32)).current;
 
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
@@ -690,12 +929,19 @@ export function ProductEditScreen() {
   const [cost, setCost] = useState('');
   const [price, setPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
+  const [saleUnit, setSaleUnit] = useState('');
   const [unit, setUnit] = useState('');
   const [stock, setStock] = useState('');
+  const [stockPaid, setStockPaid] = useState('');
+  const [stockSupplier, setStockSupplier] = useState('');
+  const [directSupplierSearch, setDirectSupplierSearch] = useState('');
+  const [directSupplierPickerVisible, setDirectSupplierPickerVisible] = useState(false);
+  const [inventoryMode, setInventoryMode] = useState<'direct' | 'recipe'>('direct');
   const [minStock, setMinStock] = useState('5');
-  const [warehouse, setWarehouse] = useState('');
   const [selectedIce, setSelectedIce] = useState<string[]>([]);
   const [selectedSugar, setSelectedSugar] = useState<string[]>([]);
+  const [fnbSizeOptions, setFnbSizeOptions] = useState<ProductVariantOption[]>([]);
+  const [fnbToppingOptions, setFnbToppingOptions] = useState<ProductVariantOption[]>([]);
   const [addedSizeOptions, setAddedSizeOptions] = useState<ProductVariantOption[]>([]);
   const [sizeSuggestModalVisible, setSizeSuggestModalVisible] = useState(false);
   const [sizeSuggestSearch, setSizeSuggestSearch] = useState('');
@@ -720,12 +966,23 @@ export function ProductEditScreen() {
   const [recipeSearch, setRecipeSearch] = useState('');
   const [activeRecipeIngredientId, setActiveRecipeIngredientId] = useState<string | null>(null);
   const [loadingRecipeStocks, setLoadingRecipeStocks] = useState(false);
-  const [isCombo, setIsCombo] = useState(false);
+  const [comboByProduct, setComboByProduct] = useState(false);
+  const [comboProducts, setComboProducts] = useState<ComboProductDraft[]>([]);
+  const [comboSearch, setComboSearch] = useState('');
+  const [activeComboProductId, setActiveComboProductId] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
   const [allowOversell, setAllowOversell] = useState(false);
   const [vatApplied, setVatApplied] = useState(false);
+  const variantSizeInputRef = useRef<TextInput | null>(null);
+  const variantColorInputRef = useRef<TextInput | null>(null);
+  const variantMaterialInputRef = useRef<TextInput | null>(null);
 
-  const hydrateForm = useCallback((nextProduct: Product, nextMakeProducts: ProductMakeItem[], nextBusinessType = '') => {
+  const hydrateForm = useCallback((
+    nextProduct: Product,
+    nextMakeProducts: ProductMakeItem[],
+    nextBusinessType = '',
+    nextAllMakeProducts: ProductMakeItem[] = nextMakeProducts,
+  ) => {
     const directStock = nextMakeProducts.length === 1 ? nextMakeProducts[0].stock : undefined;
     const isRecipeCostBusiness = isFnBBusiness(nextBusinessType);
     const recipeCostValue = nextMakeProducts.reduce((total, item) => {
@@ -743,16 +1000,26 @@ export function ProductEditScreen() {
     setBarcode(nextProduct.barcode || '');
     setCategory(nextProduct.category);
     setCategoryId(nextProduct.categoryId);
-    setBrand('');
-    setCost(formatNumberInput(costValue));
+    setBrand(nextProduct.brandName || '');
+    setBrandId(nextProduct.brandId);
+    setCost((current) => {
+      const nextCost = formatNumberInput(costValue);
+      return nextCost || current;
+    });
     setPrice(formatNumberInput(nextProduct.price));
     setSalePrice(formatNumberInput(nextProduct.priceSale));
+    setSaleUnit(nextProduct.saleUnit || (nextProduct as any).sale_unit || '');
     setUnit(directStock?.unit || '');
     setStock(formatNumberInput(stockValue));
+    setStockPaid('');
+    setStockSupplier('');
+    setDirectSupplierSearch('');
+    setDirectSupplierPickerVisible(false);
     setMinStock(formatNumberInput(nextProduct.minStock || 5));
-    setWarehouse(directStock?.name || '');
     setSelectedIce((nextProduct.iceOptions || []).map(optionName).filter(Boolean));
     setSelectedSugar((nextProduct.sugarOptions || []).map(optionName).filter(Boolean));
+    setFnbSizeOptions(isRecipeCostBusiness ? buildFnbSizeOptions(nextProduct.sizeOptions || []) : []);
+    setFnbToppingOptions(isRecipeCostBusiness ? buildFnbToppingOptions(nextProduct.toppings || []) : []);
     setAddedSizeOptions([]);
     setSizeSuggestSearch('');
     setSelectedSizeSuggestions([]);
@@ -775,9 +1042,20 @@ export function ProductEditScreen() {
           quantity: String(item.count || 1),
           price: formatNumberInput(item.stock?.averagePrice || item.stock?.latestPrice || 0),
           is_new_stock: false,
+          stock_count: formatNumberInput(item.stock?.count || 0),
         }))
       : []);
-    setIsCombo(!isRecipeCostBusiness && nextMakeProducts.length > 1);
+    const normalizedComboItems = (nextProduct.comboItems || []).map(mapComboItemToDraft);
+    setComboProducts(normalizedComboItems);
+    setComboByProduct(!isRecipeCostBusiness && normalizedComboItems.length > 0);
+    setInventoryMode(
+      isRecipeCostBusiness || normalizedComboItems.length > 0 || nextMakeProducts.length > 1
+        ? 'recipe'
+        : 'direct',
+    );
+    setComboSearch('');
+    setActiveComboProductId(null);
+    setAllMakeProducts(nextAllMakeProducts);
   }, []);
 
   const loadDetail = useCallback(
@@ -796,7 +1074,8 @@ export function ProductEditScreen() {
         setProduct(detail.product);
         setBusinessType(detail.businessType);
         setMakeProducts(detail.makeProducts);
-        hydrateForm(detail.product, detail.makeProducts, detail.businessType);
+        setAllMakeProducts(detail.allMakeProducts || detail.makeProducts);
+        hydrateForm(detail.product, detail.makeProducts, detail.businessType, detail.allMakeProducts || detail.makeProducts);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('productEdit.detailLoadError'));
       } finally {
@@ -854,7 +1133,7 @@ export function ProductEditScreen() {
     setLoadingBrands(true);
     try {
       const nextBrands = await listBrands();
-      setBrands(nextBrands);
+      setBrands((current) => mergeBrandOptions(current, nextBrands));
     } catch (err) {
       Alert.alert(t('common.error'), err instanceof Error ? err.message : t('productEdit.brandLoadError'));
     } finally {
@@ -886,12 +1165,36 @@ export function ProductEditScreen() {
     }
   }, []);
 
+  const loadComboProductsCatalog = useCallback(async () => {
+    try {
+      const nextProducts = await listAllProducts();
+      setComboProductsCatalog(
+        nextProducts.filter((item) => (editId ? item.id !== editId : true)),
+      );
+    } catch (_err) {
+      setComboProductsCatalog([]);
+    }
+  }, [editId]);
+
+  const loadAllMakeProducts = useCallback(async () => {
+    try {
+      const nextMakeProducts = await listMakeProducts();
+      setAllMakeProducts(nextMakeProducts);
+    } catch (_err) {
+      setAllMakeProducts([]);
+    }
+  }, []);
+
   useEffect(() => {
     loadCategories();
     loadBrands();
     loadUnits();
     loadRecipeStocks();
-  }, [loadBrands, loadCategories, loadRecipeStocks, loadUnits]);
+    loadComboProductsCatalog();
+    if (!editId) {
+      loadAllMakeProducts();
+    }
+  }, [editId, loadAllMakeProducts, loadBrands, loadCategories, loadComboProductsCatalog, loadRecipeStocks, loadUnits]);
 
   useEffect(() => {
     let mounted = true;
@@ -916,6 +1219,30 @@ export function ProductEditScreen() {
     }
   }, [businessType, editId]);
 
+  useEffect(() => {
+    if (!recipeModalVisible) {
+      recipeSheetTranslateY.setValue(32);
+      return;
+    }
+    Animated.timing(recipeSheetTranslateY, {
+      toValue: 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [recipeModalVisible, recipeSheetTranslateY]);
+
+  useEffect(() => {
+    if (!variantModalVisible) {
+      variantSheetTranslateY.setValue(32);
+      return;
+    }
+    Animated.timing(variantSheetTranslateY, {
+      toValue: 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [variantModalVisible, variantSheetTranslateY]);
+
   const profitMeta = useMemo(() => {
     const costNum = parseCurrency(cost);
     const priceNum = parseCurrency(price);
@@ -928,14 +1255,27 @@ export function ProductEditScreen() {
 
   const isFnB = isFnBBusiness(businessType);
   const isCafe = businessType === 'cafe';
-  const isFashion = isFashionBusiness(businessType);
   const isRetail = isRetailBusiness(businessType);
+  const comboExpansion = useMemo(
+    () => expandComboProductsToIngredients(comboProducts, allMakeProducts),
+    [allMakeProducts, comboProducts],
+  );
+  const effectiveRecipeIngredients = comboByProduct ? comboExpansion.ingredients : recipeIngredients;
+  const hasComboConfig = effectiveRecipeIngredients.length > 0 || comboProducts.length > 0;
   const showBarcode = !isFnB;
-  const hasRecipeConfig = isFnB || isCombo || recipeIngredients.length > 0;
-  const showDirectStock = !isFnB && !isCombo && recipeIngredients.length === 0 && makeProducts.length <= 1;
-  const showVariantBuilder = !isFnB;
   const variants: DisplayVariant[] = draftVariants.length > 0 ? draftVariants : product?.variants || [];
+  const canUseDirectInventoryMode = !isFnB && variants.length === 0 && makeProducts.length <= 1;
+  const useRecipeMode = isFnB || !canUseDirectInventoryMode || inventoryMode === 'recipe';
+  const hasRecipeConfig = isFnB || (useRecipeMode && hasComboConfig);
+  const showVariantBuilder = !isFnB;
   const showVariantCard = showVariantBuilder || variants.length > 0;
+  const hasVariantPricing = variants.length > 0;
+  const hasRecipeBasedInventory = !isFnB && useRecipeMode && hasComboConfig;
+  const hasVariantInventory = !isFnB && !hasRecipeBasedInventory && variants.length > 0;
+  const showDirectStock = !isFnB && canUseDirectInventoryMode && !useRecipeMode;
+  const showRetailImportCard = isRetail && !isEdit && showDirectStock;
+  const showRecipeInventoryNotice = !isFnB && hasRecipeBasedInventory;
+  const isDirectStockReadOnly = isEdit && showDirectStock;
   const variantLabels = useMemo(() => {
     if (businessType === 'retail') {
       return {
@@ -969,18 +1309,7 @@ export function ProductEditScreen() {
     () => buildSizeSuggestions(sizeOptions).map(optionToSelectOption),
     [sizeOptions],
   );
-  const recipeStockOptions = useMemo(
-    () => recipeStocks.map((stockItem) => ({
-      id: stockItem.id ?? stockItem.name,
-      name: stockItem.name,
-    })),
-    [recipeStocks],
-  );
-  const activeRecipeIngredient = useMemo(
-    () => recipeIngredients.find((ingredient) => ingredient.id === activeRecipeIngredientId),
-    [activeRecipeIngredientId, recipeIngredients],
-  );
-  const draftRecipeCost = recipeIngredients.reduce((total, item) => {
+  const draftRecipeCost = effectiveRecipeIngredients.reduce((total, item) => {
     const itemCost = parseCurrency(item.price || item.stock_cost_price || '');
     return total + itemCost * parseDecimalInput(item.quantity || '0');
   }, 0);
@@ -989,6 +1318,65 @@ export function ProductEditScreen() {
     return total + itemCost * item.count;
   }, 0);
   const recipeCost = draftRecipeCost || persistedRecipeCost;
+  const variantInventorySummary = useMemo(() => {
+    const threshold = parseCurrency(minStock);
+    const summary = variants.reduce(
+      (acc, variant) => {
+        const quantity = Math.max(0, parseDecimalInput(getVariantQuantity(variant)));
+        const costPerUnit = Math.max(0, getVariantCost(variant) || 0);
+        acc.totalStock += quantity;
+        acc.totalValue += quantity * costPerUnit;
+        if (quantity <= 0) {
+          acc.outOfStock += 1;
+        } else if (threshold > 0 && quantity <= threshold) {
+          acc.lowStock += 1;
+        }
+        return acc;
+      },
+      { totalStock: 0, totalValue: 0, outOfStock: 0, lowStock: 0 },
+    );
+    return summary;
+  }, [minStock, variants]);
+  const recipeInventorySummary = useMemo(() => {
+    const rows = effectiveRecipeIngredients
+      .filter((ingredient) => ingredient.stock_name.trim().length > 0)
+      .map((ingredient) => {
+        const usageQty = Math.max(0, parseDecimalInput(ingredient.quantity || '0'));
+        const availableQty = Math.max(0, parseDecimalInput(ingredient.stock_count || ingredient.stock_quantity || '0'));
+        const costPerUnit = Math.max(0, parseCurrency(ingredient.price || ingredient.stock_cost_price || '0'));
+        const combosPossible = usageQty > 0 ? Math.floor(availableQty / usageQty) : 0;
+        return {
+          id: ingredient.id,
+          name: ingredient.stock_name.trim(),
+          unit: ingredient.unit.trim(),
+          usageQty,
+          usageDisplay: ingredient.quantity || '0',
+          availableQty,
+          availableDisplay: ingredient.stock_count || ingredient.stock_quantity || '0',
+          combosPossible,
+          inventoryValue: availableQty * costPerUnit,
+          insufficient: usageQty > 0 && availableQty < usageQty,
+        };
+      });
+
+    const totalValue = rows.reduce((sum, row) => sum + row.inventoryValue, 0);
+    const trackedRows = rows.filter((row) => row.usageQty > 0);
+    const maxComboByStock = trackedRows.length > 0
+      ? Math.floor(Math.min(...trackedRows.map((row) => row.combosPossible)))
+      : 0;
+    const insufficientCount = rows.filter((row) => row.insufficient).length;
+
+    return {
+      rows,
+      totalValue,
+      maxComboByStock,
+      insufficientCount,
+    };
+  }, [effectiveRecipeIngredients]);
+  const stockValueNum = parseCurrency(stock);
+  const costValueNum = parseCurrency(cost);
+  const remainingStockValue = stockValueNum * costValueNum;
+  const totalImportedValue = stockValueNum * costValueNum;
 
   useEffect(() => {
     if (hasRecipeConfig && recipeCost > 0) {
@@ -1001,35 +1389,59 @@ export function ProductEditScreen() {
 
     const trimmedName = name.trim();
     const trimmedCategory = category.trim();
+    const trimmedBrand = brand.trim();
     const trimmedUnit = unit.trim();
+    const trimmedSaleUnit = saleUnit.trim();
     const trimmedBarcode = barcode.trim();
+    const trimmedPromoPrice = salePrice.trim();
     const priceValue = parseCurrency(price);
     const salePriceValue = parseCurrency(salePrice);
-    const stockValue = parseCurrency(stock);
+    const hasPromoPrice = trimmedPromoPrice.length > 0 && salePriceValue > 0;
+    const normalizedPriceSale = hasPromoPrice ? String(salePriceValue) : '0';
+    const stockValue = hasVariantInventory
+      ? Math.max(0, Math.round(variantInventorySummary.totalStock))
+      : parseCurrency(stock);
     const costValue = parseCurrency(cost);
+    const paidValue = parseCurrency(stockPaid);
+    const normalizedStockSupplier = stockSupplier.trim() || brand.trim();
     const missing: string[] = [];
-    const normalizedIngredients = recipeIngredients
-      .map((ingredient) => ({
-        ...ingredient,
-        stock_name: ingredient.stock_name.trim(),
-        unit: ingredient.unit.trim(),
-        quantity: normalizeDecimalInput(ingredient.quantity || '1') || '1',
-        price: String(parseCurrency(ingredient.price || ingredient.stock_cost_price || '')),
-        stock_cost_price: String(parseCurrency(ingredient.stock_cost_price || ingredient.price || '')),
-        stock_quantity: String(parseCurrency(ingredient.stock_quantity || '')),
-        stock_paid: String(parseCurrency(ingredient.stock_paid || '')),
-        stock_supplier: ingredient.stock_supplier?.trim() || '',
-      }))
+    const normalizedComboProducts = !isFnB && comboByProduct
+      ? comboProducts
+        .map((item) => ({
+          product_id: item.product_id ? Number(item.product_id) : 0,
+          product_name: item.product_name.trim(),
+          quantity: normalizeDecimalInput(item.quantity || '1') || '1',
+        }))
+        .filter((item) => item.product_id > 0 && parseDecimalInput(item.quantity) > 0)
+      : [];
+    const normalizedIngredients = effectiveRecipeIngredients
+      .map((ingredient) => {
+        const { stock_count: _stockCount, ...rest } = ingredient;
+        return {
+          ...rest,
+          stock_name: ingredient.stock_name.trim(),
+          unit: ingredient.unit.trim(),
+          quantity: normalizeDecimalInput(ingredient.quantity || '1') || '1',
+          price: String(parseCurrency(ingredient.price || ingredient.stock_cost_price || '')),
+          stock_cost_price: String(parseCurrency(ingredient.stock_cost_price || ingredient.price || '')),
+          stock_quantity: String(parseCurrency(ingredient.stock_quantity || '')),
+          stock_paid: String(parseCurrency(ingredient.stock_paid || '')),
+          stock_supplier: ingredient.stock_supplier?.trim() || '',
+        };
+      })
       .filter((ingredient) => ingredient.stock_name.length > 0);
-    const usesRecipe = isFnB || isCombo || normalizedIngredients.length > 0;
+    const shouldUseRecipePayload = useRecipeMode;
+    const usesRecipe = shouldUseRecipePayload && (isFnB || normalizedIngredients.length > 0 || normalizedComboProducts.length > 0);
+    const payloadIngredients = shouldUseRecipePayload ? normalizedIngredients : [];
+    const payloadComboProducts = shouldUseRecipePayload ? normalizedComboProducts : [];
 
     if (!trimmedName) missing.push(t('productEdit.productName'));
     if (!categoryId && !trimmedCategory) missing.push(t('productEdit.category'));
     if (!priceValue) missing.push(t('productEdit.salePrice'));
-    if (!isFnB && !trimmedUnit) missing.push(t('productEdit.unit'));
-    if (usesRecipe && normalizedIngredients.length === 0) missing.push(t('productEdit.recipe'));
-    if (!isFnB && !usesRecipe) {
-      if (!stockValue) missing.push(t('productEdit.importQuantity'));
+    if (shouldUseRecipePayload && normalizedIngredients.length === 0) missing.push(t('productEdit.recipe'));
+    if (!isFnB && shouldUseRecipePayload && comboByProduct && normalizedComboProducts.length === 0) missing.push(t('productEdit.recipe'));
+    if (!isFnB && !shouldUseRecipePayload) {
+      if (!hasVariantInventory && !stockValue) missing.push(t('productEdit.importQuantity'));
       if (!costValue) missing.push(t('productEdit.costPrice'));
     }
 
@@ -1038,13 +1450,30 @@ export function ProductEditScreen() {
       return;
     }
 
-    const invalidIngredient = normalizedIngredients.find((ingredient) =>
+    if (!isFnB && !shouldUseRecipePayload && paidValue > totalImportedValue) {
+      Alert.alert(t('productEdit.invalidPaidAmountTitle'), t('productEdit.invalidPaidAmountMessage'));
+      return;
+    }
+
+    if (!isFnB && shouldUseRecipePayload && comboByProduct && comboExpansion.unresolved.length > 0) {
+      const unresolvedNames = comboExpansion.unresolved
+        .map((item) => item.productName || `#${item.productId || ''}`)
+        .filter(Boolean)
+        .join(', ');
+      Alert.alert(
+        t('productEdit.missingRecipe'),
+        t('productEdit.comboMissingRecipeMessage', { products: unresolvedNames || t('productEdit.unknownReason') }),
+      );
+      return;
+    }
+
+    const invalidIngredient = payloadIngredients.find((ingredient) =>
       !ingredient.stock_name ||
       !parseDecimalInput(ingredient.quantity) ||
       !parseCurrency(ingredient.price) ||
       (ingredient.is_new_stock && (!ingredient.unit || !parseCurrency(ingredient.stock_cost_price || '') || !parseCurrency(ingredient.stock_quantity || ''))),
     );
-    if (invalidIngredient) {
+    if (shouldUseRecipePayload && invalidIngredient) {
       Alert.alert(
         t('productEdit.missingRecipe'),
         t('productEdit.missingRecipeMessage'),
@@ -1055,57 +1484,150 @@ export function ProductEditScreen() {
     const imageUris = productImages
       .map((photo) => photo.fallbackUri || photo.uri)
       .filter((uri): uri is string => Boolean(uri));
-    const activeSale = salePriceValue > 0 && salePriceValue < priceValue;
-    const sizePayload = sizeOptions.map(toImportOption);
+    const activeSale = hasPromoPrice && salePriceValue < priceValue;
+    const normalizedFnbSizeOptions = fnbSizeOptions
+      .map(normalizeFnbOption)
+      .filter((option) => optionName(option).trim().length > 0);
+    const normalizedFnbToppingOptions = fnbToppingOptions
+      .map(normalizeFnbOption)
+      .filter((option) => optionName(option).trim().length > 0);
+    const sizePayload = (isFnB
+      ? normalizedFnbSizeOptions.filter((option) => {
+          const isDefaultSize = FNB_DEFAULT_SIZE_NAMES.some(
+            (name) => name.toLowerCase() === optionName(option).trim().toLowerCase(),
+          );
+          const optionPrice = parseCurrency(String(option.value || '0'));
+          return !(isDefaultSize && optionPrice === 0);
+        })
+      : sizeOptions
+    ).map(toImportOption);
+    const toppingPayload = (isFnB ? normalizedFnbToppingOptions : []).map(toImportOption);
+    const icePayload = isCafe
+      ? Array.from(new Set(selectedIce.map((value) => String(value).trim()).filter(Boolean)))
+      : [];
+    const sugarPayload = isCafe
+      ? Array.from(new Set(selectedSugar.map((value) => String(value).trim()).filter(Boolean)))
+      : [];
+    const colorPayload = showVariantBuilder ? variantColorOptions.map(toImportOption) : [];
+    const materialPayload = showVariantBuilder ? variantMaterialOptions.map(toImportOption) : [];
+    const variantsPayload = showVariantBuilder ? draftVariants.map(toBackendVariant) : [];
     const generatedSku = sku.trim() || generateProductSku();
+    const sizeTitlePayload = product?.sizeTitle || t('productEdit.size');
+    const toppingTitlePayload = product?.toppingTitle || 'Topping';
+    const iceTitlePayload = product?.iceTitle || t('productEdit.ice');
+    const sugarTitlePayload = product?.sugarTitle || t('productEdit.sugar');
+    const colorTitlePayload = product?.colorTitle || variantLabels.color;
+    const materialTitlePayload = product?.materialTitle || variantLabels.material;
     const commonPayload = {
       name: trimmedName,
       sku: generatedSku,
       barcode: isFnB ? '' : trimmedBarcode,
       category_id: categoryId || null,
       category_name: categoryId ? category : trimmedCategory,
+      brand_id: brandId || null,
+      brand_name: trimmedBrand,
       price: String(priceValue),
-      price_sale: salePriceValue > 0 ? String(salePriceValue) : '',
+      price_sale: normalizedPriceSale,
       active_sale: activeSale,
       unit: isFnB ? '' : trimmedUnit,
+      sale_unit: isFnB ? trimmedSaleUnit : '',
       image: imageUris[0] || '',
       images: imageUris,
       sizes: sizePayload,
       size: sizePayload,
-      toppings: isFnB ? (product?.toppings || []).map(toImportOption) : [],
-      topping: isFnB ? (product?.toppings || []).map(toImportOption) : [],
-      ice: isCafe ? selectedIce.map(toImportOption) : [],
-      sugar: isCafe ? selectedSugar.map(toImportOption) : [],
-      color: showVariantBuilder ? variantColorOptions.map(toImportOption) : [],
-      material: showVariantBuilder ? variantMaterialOptions.map(toImportOption) : [],
-      variants: showVariantBuilder ? draftVariants.map(toBackendVariant) : [],
+      toppings: toppingPayload,
+      topping: toppingPayload,
+      ice: icePayload,
+      sugar: sugarPayload,
+      color: colorPayload,
+      material: materialPayload,
+      variants: variantsPayload,
+      sizeTitle: sizeTitlePayload,
+      toppingTitle: toppingTitlePayload,
+      iceTitle: iceTitlePayload,
+      sugarTitle: sugarTitlePayload,
+      colorTitle: colorTitlePayload,
+      materialTitle: materialTitlePayload,
       bestter: product?.bestter || false,
       softHide: !isOnline,
     };
 
     if (isEdit) {
       if (!editId) return;
-
-      const updatePayload = {
-        ...commonPayload,
-        id: editId,
-        images_old: JSON.stringify(imageUris),
-        sizeOptions: JSON.stringify(sizePayload),
-        colorOptions: JSON.stringify(showVariantBuilder ? variantColorOptions.map(toImportOption) : []),
-        materialOptions: JSON.stringify(showVariantBuilder ? variantMaterialOptions.map(toImportOption) : []),
-        size: JSON.stringify(sizePayload),
-        topping: JSON.stringify(isFnB ? (product?.toppings || []).map(toImportOption) : []),
-        ice: JSON.stringify(isCafe ? selectedIce.map(toImportOption) : []),
-        sugar: JSON.stringify(isCafe ? selectedSugar.map(toImportOption) : []),
-        variants: JSON.stringify(showVariantBuilder ? draftVariants.map(toBackendVariant) : []),
-        ingredients: usesRecipe ? JSON.stringify(normalizedIngredients) : undefined,
-        is_combo: !isFnB && normalizedIngredients.length > 0,
-        stock_quantity: usesRecipe ? undefined : String(stockValue),
-        stock_cost_price: usesRecipe ? undefined : String(costValue),
-        stock_supplier: usesRecipe ? undefined : brand.trim(),
-        stock_paid: usesRecipe ? undefined : '',
-        stock_remaining: usesRecipe ? undefined : String(stockValue),
+      const updatePayload = new FormData();
+      const appendField = (key: string, value: string | number | boolean | null | undefined) => {
+        if (value === undefined || value === null) return;
+        updatePayload.append(key, String(value));
       };
+      const imagesOld = Array.from(
+        new Set(
+          productImages
+            .map((photo) => {
+              if (isRemoteImageUri(photo.uri)) return photo.uri;
+              if (isUploadableLocalUri(photo.uri)) return null;
+              if (isDataImageUri(photo.uri)) return photo.uri;
+              if (isRemoteImageUri(photo.fallbackUri)) return photo.fallbackUri;
+              if (isDataImageUri(photo.fallbackUri)) return photo.fallbackUri;
+              return null;
+            })
+            .filter((uri): uri is string => Boolean(uri)),
+        ),
+      );
+      const uploadableImages = productImages.filter((photo) => isUploadableLocalUri(photo.uri));
+
+      uploadableImages.forEach((photo, index) => {
+        updatePayload.append('images', {
+          uri: photo.uri,
+          name: buildUploadFilename(photo.uri, index),
+          type: guessUploadMimeType(photo.uri, photo.fallbackUri),
+        } as any);
+      });
+
+      if (imagesOld.length > 0) {
+        appendField('images_old', JSON.stringify(imagesOld));
+      }
+
+      appendField('id', editId);
+      appendField('name', trimmedName);
+      if (!isFnB && trimmedBarcode) appendField('barcode', trimmedBarcode);
+      appendField('sku', generatedSku);
+      appendField('price', String(priceValue));
+      appendField('price_sale', normalizedPriceSale);
+      appendField('active_sale', activeSale);
+      appendField('category_id', categoryId || product?.categoryId || '');
+      appendField('brand_id', brandId || product?.brandId || '');
+      appendField('brand_name', trimmedBrand);
+      appendField('unit', isFnB ? '' : trimmedUnit);
+      appendField('sale_unit', isFnB ? trimmedSaleUnit : '');
+
+      appendField('size', JSON.stringify(sizePayload));
+      appendField('sizeOptions', JSON.stringify(sizePayload));
+      appendField('colorOptions', JSON.stringify(colorPayload));
+      appendField('materialOptions', JSON.stringify(materialPayload));
+      appendField('topping', JSON.stringify(toppingPayload));
+      appendField('ice', JSON.stringify(icePayload));
+      appendField('sugar', JSON.stringify(sugarPayload));
+      appendField('variants', JSON.stringify(variantsPayload));
+      appendField('dynamic_form', JSON.stringify({}));
+
+      appendField('sizeTitle', sizeTitlePayload);
+      appendField('toppingTitle', toppingTitlePayload);
+      appendField('iceTitle', iceTitlePayload);
+      appendField('sugarTitle', sugarTitlePayload);
+      appendField('colorTitle', colorTitlePayload);
+      appendField('materialTitle', materialTitlePayload);
+      if (!isFnB) {
+        appendField('combo_items', JSON.stringify(payloadComboProducts));
+      }
+
+      if (usesRecipe) {
+        appendField('ingredients', JSON.stringify(payloadIngredients));
+      } else {
+        appendField('stock_quantity', String(stockValue));
+        appendField('stock_cost_price', String(costValue));
+        appendField('stock_supplier', normalizedStockSupplier);
+        appendField('stock_paid', String(parseCurrency(stockPaid)));
+      }
 
       try {
         setSaving(true);
@@ -1123,29 +1645,82 @@ export function ProductEditScreen() {
 
     const payload = {
       ...commonPayload,
-      ingredients: normalizedIngredients,
-      is_combo: !isFnB && normalizedIngredients.length > 0,
+      ingredients: payloadIngredients,
+      combo_items: payloadComboProducts,
+      is_combo: !isFnB && (payloadIngredients.length > 0 || payloadComboProducts.length > 0),
       stock_quantity: usesRecipe ? undefined : String(stockValue),
       stock_cost_price: usesRecipe ? undefined : String(costValue),
-      stock_supplier: usesRecipe ? undefined : brand.trim(),
-      stock_paid: usesRecipe ? undefined : '',
+      stock_supplier: usesRecipe ? undefined : normalizedStockSupplier,
+      stock_paid: usesRecipe ? undefined : String(parseCurrency(stockPaid)),
       stock_remaining: usesRecipe ? undefined : String(stockValue),
     };
 
+    const uploadableImages = productImages.filter((photo) => isUploadableLocalUri(photo.uri));
+
     try {
       setSaving(true);
-      const result = await importProducts([payload], businessType);
-      const failedImports = result.failedImports || result.data?.failed || [];
+      if (uploadableImages.length > 0 && !shouldUseRecipePayload) {
+        const createPayload = new FormData();
+        const appendField = (key: string, value: string | number | boolean | null | undefined) => {
+          if (value === undefined || value === null) return;
+          createPayload.append(key, String(value));
+        };
 
-      if (failedImports.length > 0) {
-        const message = failedImports
-          .map((item) => (typeof item === 'string' ? item : item.responseText || item.reason || item.name || t('productEdit.unknownReason')))
-          .join('\n');
-        Alert.alert(t('productEdit.createFailed'), message || t('productEdit.backendRejected'));
+        appendField('name', trimmedName);
+        if (!isFnB && trimmedBarcode) appendField('barcode', trimmedBarcode);
+        appendField('sku', generatedSku);
+        appendField('price', String(priceValue));
+        appendField('price_sale', normalizedPriceSale);
+        appendField('active_sale', activeSale);
+        appendField('category_id', categoryId || '');
+        appendField('brand_id', brandId || '');
+        appendField('brand_name', trimmedBrand);
+        appendField('unit', isFnB ? '' : trimmedUnit);
+        appendField('sale_unit', isFnB ? trimmedSaleUnit : '');
+        appendField('size', JSON.stringify(sizePayload));
+        appendField('sizeOptions', JSON.stringify(sizePayload));
+        appendField('colorOptions', JSON.stringify(colorPayload));
+        appendField('materialOptions', JSON.stringify(materialPayload));
+        appendField('topping', JSON.stringify(toppingPayload));
+        appendField('ice', JSON.stringify(icePayload));
+        appendField('sugar', JSON.stringify(sugarPayload));
+        appendField('variants', JSON.stringify(variantsPayload));
+        appendField('dynamic_form', JSON.stringify({}));
+        appendField('sizeTitle', sizeTitlePayload);
+        appendField('toppingTitle', toppingTitlePayload);
+        appendField('iceTitle', iceTitlePayload);
+        appendField('sugarTitle', sugarTitlePayload);
+        appendField('colorTitle', colorTitlePayload);
+        appendField('materialTitle', materialTitlePayload);
+        if (!isFnB) {
+          appendField('combo_items', JSON.stringify(payloadComboProducts));
+        }
+        if (usesRecipe) {
+          appendField('ingredients', JSON.stringify(payloadIngredients));
+        } else {
+          appendField('stock_quantity', String(stockValue));
+          appendField('stock_cost_price', String(costValue));
+          appendField('stock_supplier', normalizedStockSupplier);
+          appendField('stock_paid', String(parseCurrency(stockPaid)));
+        }
+
+        uploadableImages.forEach((photo, index) => {
+          createPayload.append('images', {
+            uri: photo.uri,
+            name: buildUploadFilename(photo.uri, index),
+            type: guessUploadMimeType(photo.uri, photo.fallbackUri),
+          } as any);
+        });
+
+        const result = await createProduct(createPayload);
+        Alert.alert(t('profile.successTitle'), result.responseText || result.message || t('productEdit.created'), [
+          { text: 'OK', onPress: () => navigation.goBack() },
+        ]);
         return;
       }
 
-      Alert.alert(t('profile.successTitle'), result.message || result.responseText || t('productEdit.created'), [
+      const result = await createProduct(payload);
+      Alert.alert(t('profile.successTitle'), result.responseText || result.message || t('productEdit.created'), [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
     } catch (err) {
@@ -1319,6 +1894,7 @@ export function ProductEditScreen() {
         quantity: '1',
         price: '',
         is_new_stock: false,
+        stock_count: '',
         stock_quantity: '',
         stock_cost_price: '',
         stock_supplier: '',
@@ -1329,6 +1905,10 @@ export function ProductEditScreen() {
 
   const removeRecipeIngredient = useCallback((ingredientId: string) => {
     setRecipeIngredients((current) => current.filter((ingredient) => ingredient.id !== ingredientId));
+    setActiveRecipeIngredientId((current) => (current === ingredientId ? null : current));
+    setRecipeSearch((current) => (current ? '' : current));
+    setActiveSupplierIngredientId((current) => (current === ingredientId ? null : current));
+    setSupplierSearch((current) => (current ? '' : current));
   }, []);
 
   const selectRecipeStock = useCallback((ingredientId: string, stockItem: ProductStock) => {
@@ -1338,11 +1918,59 @@ export function ProductEditScreen() {
       unit: stockItem.unit || '',
       price: formatNumberInput(stockItem.averagePrice || stockItem.latestPrice || 0),
       stock_cost_price: formatNumberInput(stockItem.averagePrice || stockItem.latestPrice || 0),
+      stock_count: formatNumberInput(stockItem.count || 0),
       is_new_stock: false,
     });
     setActiveRecipeIngredientId(null);
     setRecipeSearch('');
   }, [updateRecipeIngredient]);
+
+  const updateComboProduct = useCallback((comboId: string, updates: Partial<ComboProductDraft>) => {
+    setComboProducts((current) =>
+      current.map((item) => (item.id === comboId ? { ...item, ...updates } : item)),
+    );
+  }, []);
+
+  const addComboProduct = useCallback(() => {
+    setComboProducts((current) => [
+      ...current,
+      {
+        id: buildComboDraftId(),
+        product_id: null,
+        product_name: '',
+        quantity: '1',
+      },
+    ]);
+  }, []);
+
+  const removeComboProduct = useCallback((comboId: string) => {
+    setComboProducts((current) => current.filter((item) => item.id !== comboId));
+    setActiveComboProductId((current) => (current === comboId ? null : current));
+    setComboSearch((current) => (current ? '' : current));
+  }, []);
+
+  const selectComboProduct = useCallback((comboId: string, selectedProduct: Product) => {
+    updateComboProduct(comboId, {
+      product_id: selectedProduct.id,
+      product_name: selectedProduct.name,
+    });
+    setActiveComboProductId(null);
+    setComboSearch('');
+  }, [updateComboProduct]);
+
+  const openComboProductSelect = useCallback((comboId: string) => {
+    if (activeComboProductId === comboId) {
+      setActiveComboProductId(null);
+      setComboSearch('');
+      return;
+    }
+    setActiveRecipeIngredientId(null);
+    setRecipeSearch('');
+    setActiveSupplierIngredientId(null);
+    setSupplierSearch('');
+    setActiveComboProductId(comboId);
+    setComboSearch('');
+  }, [activeComboProductId]);
 
   const openRecipeStockSelect = useCallback((ingredientId: string) => {
     if (activeRecipeIngredientId === ingredientId) {
@@ -1351,53 +1979,54 @@ export function ProductEditScreen() {
       return;
     }
 
+    setActiveComboProductId(null);
+    setComboSearch('');
+    setActiveSupplierIngredientId(null);
+    setSupplierSearch('');
     setActiveRecipeIngredientId(ingredientId);
     setRecipeSearch('');
     loadRecipeStocks('');
   }, [activeRecipeIngredientId, loadRecipeStocks]);
 
-  const handleSelectRecipeStock = useCallback((option: SelectOption) => {
-    if (!activeRecipeIngredientId) return;
+  const handleChangeComboMode = useCallback((nextComboByProduct: boolean) => {
+    if (isFnB) return;
 
-    const selectedStock = recipeStocks.find((stockItem) =>
-      String(stockItem.id ?? stockItem.name) === String(option.id) ||
-      stockItem.name.toLowerCase() === option.name.toLowerCase(),
-    );
+    setActiveRecipeIngredientId(null);
+    setRecipeSearch('');
+    setActiveComboProductId(null);
+    setComboSearch('');
+    setActiveSupplierIngredientId(null);
+    setSupplierSearch('');
+    setComboByProduct(nextComboByProduct);
 
-    if (selectedStock) {
-      selectRecipeStock(activeRecipeIngredientId, selectedStock);
-    } else {
-      updateRecipeIngredient(activeRecipeIngredientId, {
-        stock_id: null,
-        stock_name: option.name,
-        unit: '',
-        price: '',
-        stock_cost_price: '',
-        is_new_stock: true,
-      });
+    if (nextComboByProduct) {
+      if (comboProducts.length === 0) {
+        addComboProduct();
+      }
+      return;
     }
 
-    setActiveRecipeIngredientId(null);
-    setRecipeSearch('');
-  }, [activeRecipeIngredientId, recipeStocks, selectRecipeStock, updateRecipeIngredient]);
-
-  const handleCreateRecipeStockName = useCallback((name: string) => {
-    const nextName = name.trim();
-    if (!activeRecipeIngredientId || !nextName) return;
-
-    updateRecipeIngredient(activeRecipeIngredientId, {
-      stock_id: null,
-      stock_name: nextName,
-      unit: '',
-      price: '',
-      stock_cost_price: '',
-      is_new_stock: true,
-    });
-    setActiveRecipeIngredientId(null);
-    setRecipeSearch('');
-  }, [activeRecipeIngredientId, updateRecipeIngredient]);
+    if (recipeIngredients.length === 0) {
+      addRecipeIngredient();
+    }
+  }, [addComboProduct, addRecipeIngredient, comboProducts.length, isFnB, recipeIngredients.length]);
 
   const handleSaveRecipeModal = useCallback(() => {
+    if (!isFnB && comboByProduct) {
+      const invalidCombo = comboProducts.some((item) => !item.product_id || !parseDecimalInput(item.quantity || '0'));
+      if (comboProducts.length === 0 || invalidCombo) {
+        Alert.alert(
+          t('productEdit.missingRecipe'),
+          t('productEdit.missingComboProductsMessage'),
+        );
+        return;
+      }
+      setRecipeModalVisible(false);
+      setActiveComboProductId(null);
+      setComboSearch('');
+      return;
+    }
+
     const invalid = recipeIngredients.some((ingredient) =>
       !ingredient.stock_name.trim() ||
       !parseDecimalInput(ingredient.quantity) ||
@@ -1413,33 +2042,609 @@ export function ProductEditScreen() {
       return;
     }
 
-    if (!isFnB && recipeIngredients.length > 0) {
-      setIsCombo(true);
-    }
     setRecipeModalVisible(false);
-  }, [isFnB, recipeIngredients]);
+  }, [comboByProduct, comboProducts, isFnB, recipeIngredients]);
 
   const openRecipeModal = useCallback(() => {
+    if (!isFnB && comboByProduct) {
+      if (comboProducts.length === 0) {
+        addComboProduct();
+      }
+      setRecipeModalVisible(true);
+      return;
+    }
+
     if (recipeIngredients.length === 0) {
       addRecipeIngredient();
     }
     setRecipeModalVisible(true);
-  }, [addRecipeIngredient, recipeIngredients.length]);
+  }, [addComboProduct, addRecipeIngredient, comboByProduct, comboProducts.length, isFnB, recipeIngredients.length]);
 
   const closeRecipeModal = useCallback(() => {
+    if (!isFnB && comboByProduct) {
+      const hasConfiguredCombo = comboProducts.some((item) => item.product_id && parseDecimalInput(item.quantity || '0'));
+      if (!hasConfiguredCombo) {
+        setComboProducts([]);
+      }
+      setActiveComboProductId(null);
+      setComboSearch('');
+      setRecipeModalVisible(false);
+      return;
+    }
+
     const hasConfiguredIngredient = recipeIngredients.some(isRecipeIngredientConfigured);
 
     if (!hasConfiguredIngredient) {
       setRecipeIngredients([]);
-      if (!isFnB) {
-        setIsCombo(false);
-      }
     }
 
     setActiveRecipeIngredientId(null);
     setRecipeSearch('');
+    setActiveComboProductId(null);
+    setComboSearch('');
+    setActiveSupplierIngredientId(null);
+    setSupplierSearch('');
     setRecipeModalVisible(false);
-  }, [isFnB, recipeIngredients]);
+  }, [comboByProduct, comboProducts, isFnB, recipeIngredients]);
+
+  const openSupplierModal = useCallback((ingredientId: string) => {
+    setActiveRecipeIngredientId(null);
+    setRecipeSearch('');
+    setActiveComboProductId(null);
+    setComboSearch('');
+    if (!loadingBrands && brands.length === 0) {
+      loadBrands();
+    }
+    setActiveSupplierIngredientId((current) => (current === ingredientId ? null : ingredientId));
+    setSupplierSearch('');
+  }, [brands.length, loadBrands, loadingBrands]);
+
+  const closeSupplierModal = useCallback(() => {
+    setSupplierSearch('');
+    setActiveSupplierIngredientId(null);
+  }, []);
+
+  const handleSelectSupplier = useCallback(
+    (nextSupplier: SelectOption) => {
+      if (!activeSupplierIngredientId) return;
+      updateRecipeIngredient(activeSupplierIngredientId, { stock_supplier: nextSupplier.name });
+      closeSupplierModal();
+    },
+    [activeSupplierIngredientId, closeSupplierModal, updateRecipeIngredient],
+  );
+
+  const handleCreateSupplier = useCallback(
+    async (supplierName: string) => {
+      const normalizedName = supplierName.trim();
+      if (!normalizedName || !activeSupplierIngredientId) return;
+
+      setCreatingSupplier(true);
+      try {
+        const nextSupplier = await createBrand(normalizedName);
+        setBrands((current) => {
+          return mergeBrandOptions(current, [nextSupplier]);
+        });
+        updateRecipeIngredient(activeSupplierIngredientId, { stock_supplier: nextSupplier.name });
+        closeSupplierModal();
+      } catch (err) {
+        Alert.alert(t('common.error'), err instanceof Error ? err.message : t('productEdit.createSupplierError'));
+      } finally {
+        setCreatingSupplier(false);
+      }
+    },
+    [activeSupplierIngredientId, closeSupplierModal, t, updateRecipeIngredient],
+  );
+
+  const openDirectSupplierPicker = useCallback(() => {
+    setActiveRecipeIngredientId(null);
+    setRecipeSearch('');
+    setActiveComboProductId(null);
+    setComboSearch('');
+    setActiveSupplierIngredientId(null);
+    setSupplierSearch('');
+    if (!loadingBrands && brands.length === 0) {
+      loadBrands();
+    }
+    setDirectSupplierPickerVisible((current) => !current);
+    setDirectSupplierSearch('');
+  }, [brands.length, loadBrands, loadingBrands]);
+
+  const closeDirectSupplierPicker = useCallback(() => {
+    setDirectSupplierPickerVisible(false);
+    setDirectSupplierSearch('');
+  }, []);
+
+  const handleSelectDirectSupplier = useCallback((nextSupplier: string) => {
+    setStockSupplier(nextSupplier);
+    closeDirectSupplierPicker();
+  }, [closeDirectSupplierPicker]);
+
+  const handleCreateDirectSupplier = useCallback(async (supplierName: string) => {
+    const normalizedName = supplierName.trim();
+    if (!normalizedName) return;
+
+    setCreatingSupplier(true);
+    try {
+      const nextSupplier = await createBrand(normalizedName);
+      setBrands((current) => {
+        return mergeBrandOptions(current, [nextSupplier]);
+      });
+      setStockSupplier(nextSupplier.name);
+      closeDirectSupplierPicker();
+    } catch (err) {
+      Alert.alert(t('common.error'), err instanceof Error ? err.message : t('productEdit.createSupplierError'));
+    } finally {
+      setCreatingSupplier(false);
+    }
+  }, [closeDirectSupplierPicker, t]);
+
+  const switchInventoryMode = useCallback((nextMode: 'direct' | 'recipe') => {
+    if (isFnB || nextMode === inventoryMode || !canUseDirectInventoryMode) return;
+
+    const hasDirectDraft = parseCurrency(stock) > 0 || parseCurrency(cost) > 0 || parseCurrency(stockPaid) > 0 || stockSupplier.trim().length > 0;
+    const hasRecipeDraft = recipeIngredients.length > 0 || comboProducts.length > 0;
+
+    const applySwitch = () => {
+      if (nextMode === 'direct') {
+        setRecipeIngredients([]);
+        setComboProducts([]);
+        setComboByProduct(false);
+        setActiveRecipeIngredientId(null);
+        setRecipeSearch('');
+        setActiveComboProductId(null);
+        setComboSearch('');
+        setActiveSupplierIngredientId(null);
+        setSupplierSearch('');
+      } else {
+        setStock('');
+        setCost('');
+        setStockPaid('');
+        setStockSupplier('');
+        setDirectSupplierSearch('');
+        setDirectSupplierPickerVisible(false);
+      }
+      setInventoryMode(nextMode);
+    };
+
+    if ((nextMode === 'recipe' && hasDirectDraft) || (nextMode === 'direct' && hasRecipeDraft)) {
+      Alert.alert(
+        t('productEdit.switchModeTitle'),
+        t('productEdit.switchModeMessage'),
+        [
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: 'OK', style: 'destructive', onPress: applySwitch },
+        ],
+      );
+      return;
+    }
+
+    applySwitch();
+  }, [
+    canUseDirectInventoryMode,
+    comboProducts.length,
+    cost,
+    inventoryMode,
+    isFnB,
+    recipeIngredients.length,
+    stock,
+    stockPaid,
+    stockSupplier,
+    t,
+  ]);
+
+  const renderRecipeIngredientItem = useCallback(
+    ({ item: ingredient, index }: { item: RecipeIngredient; index: number }) => {
+      const itemCost = parseCurrency(ingredient.price || ingredient.stock_cost_price || '');
+      const itemCount = parseDecimalInput(ingredient.quantity);
+      const unitName = ingredient.unit?.trim();
+      const stockImportPriceLabel = unitName
+        ? `${t('productEdit.stockImportPrice')} (${unitName})`
+        : t('productEdit.stockImportPrice');
+      const stockImportTotal = parseCurrency(ingredient.stock_quantity || '') * parseCurrency(ingredient.stock_cost_price || '');
+
+      return (
+        <View style={styles.recipeEditCard}>
+          <View style={styles.variantsHeader}>
+            <Text style={styles.variantName}>{t('productEdit.ingredientNumber', { index: index + 1 })}</Text>
+            <TouchableOpacity onPressIn={() => removeRecipeIngredient(ingredient.id)} activeOpacity={0.85}>
+              <Ionicons name="trash-outline" size={17} color={Colors.danger} />
+            </TouchableOpacity>
+          </View>
+
+          <FieldCard
+            label={t('productEdit.ingredientName')}
+            value={ingredient.stock_name}
+            onPress={() => openRecipeStockSelect(ingredient.id)}
+            placeholder={t('productEdit.ingredientNamePlaceholder')}
+            dropdown
+            editable={false}
+          />
+
+          {activeRecipeIngredientId === ingredient.id && (
+            <View style={styles.recipeInlineSelect}>
+              <View style={styles.recipeInlineSearchBox}>
+                <Ionicons name="search-outline" size={16} color={Colors.textSecondary} />
+                <TextInput
+                  value={recipeSearch}
+                  onChangeText={(value) => {
+                    setRecipeSearch(value);
+                    loadRecipeStocks(value);
+                  }}
+                  placeholder={t('productEdit.ingredientSearchPlaceholder')}
+                  placeholderTextColor={Colors.textSecondary}
+                  style={styles.recipeInlineSearchInput}
+                  autoFocus
+                />
+                {loadingRecipeStocks && <ActivityIndicator size="small" color={Colors.primary} />}
+              </View>
+              <ScrollView
+                style={styles.recipeInlineSelectList}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {recipeSearch.trim().length > 0 &&
+                  !recipeStocks.some((stockItem) => stockItem.name.trim().toLowerCase() === recipeSearch.trim().toLowerCase()) && (
+                    <TouchableOpacity
+                      style={[styles.categoryCreateOption, styles.recipeCreateOption]}
+                      onPress={() => {
+                        updateRecipeIngredient(ingredient.id, {
+                          stock_id: null,
+                          stock_name: recipeSearch.trim(),
+                          unit: '',
+                          price: '',
+                          stock_count: '',
+                          stock_cost_price: '',
+                          is_new_stock: true,
+                        });
+                        setActiveRecipeIngredientId(null);
+                        setRecipeSearch('');
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+                      <Text style={styles.categoryCreateText}>{t('productEdit.createIngredientNamed', { name: recipeSearch.trim() })}</Text>
+                    </TouchableOpacity>
+                  )}
+                {loadingRecipeStocks ? (
+                  <View style={styles.categoryLoading}>
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                    <Text style={styles.categoryLoadingText}>{t('productEdit.loadingIngredients')}</Text>
+                  </View>
+                ) : recipeStocks.length > 0 ? (
+                  recipeStocks.map((stockItem, stockIndex) => {
+                    const selected = ingredient.stock_id
+                      ? String(ingredient.stock_id) === String(stockItem.id)
+                      : ingredient.stock_name.toLowerCase() === stockItem.name.toLowerCase();
+
+                    return (
+                      <TouchableOpacity
+                        key={`${stockItem.id ?? 'no-id'}-${stockItem.name}-${stockIndex}`}
+                        style={[styles.recipeInlineOption, selected && styles.categoryOptionActive]}
+                        onPress={() => selectRecipeStock(ingredient.id, stockItem)}
+                        activeOpacity={0.85}
+                      >
+                        <View style={styles.extraInfo}>
+                          <Text style={[styles.categoryOptionText, selected && styles.categoryOptionTextActive]}>
+                            {stockItem.name}
+                          </Text>
+                          <Text style={styles.recipeSuggestionMeta}>
+                            {stockItem.unit || 'ĐVT'} · {formatMoney(stockItem.averagePrice || stockItem.latestPrice)}
+                          </Text>
+                        </View>
+                        {selected && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.categoryEmptyText}>{t('productEdit.noIngredientMatch')}</Text>
+                )}
+              </ScrollView>
+            </View>
+          )}
+
+          <View style={styles.twoCol}>
+            <View style={styles.colItem}>
+              <FieldCard
+                label={t('productEdit.usedQuantity')}
+                value={ingredient.quantity}
+                onChangeText={(value) => updateRecipeIngredient(ingredient.id, { quantity: value })}
+                keyboardType="numeric"
+                mono
+              />
+            </View>
+            <View style={styles.colItem}>
+              <FieldCard
+                label={t('productEdit.unit')}
+                value={ingredient.unit}
+                onChangeText={(value) => updateRecipeIngredient(ingredient.id, { unit: value })}
+                placeholder={t('productEdit.unitExample')}
+              />
+            </View>
+          </View>
+
+          {ingredient.is_new_stock && !ingredient.stock_id && (
+            <>
+              <View style={styles.twoCol}>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.stockImportQtyShort')}
+                    value={ingredient.stock_quantity || ''}
+                    onChangeText={handleNumericChange((value) => updateRecipeIngredient(ingredient.id, { stock_quantity: value }))}
+                    keyboardType="numeric"
+                    mono
+                  />
+                </View>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={stockImportPriceLabel}
+                    value={ingredient.stock_cost_price || ''}
+                    onChangeText={handleNumericChange((value) => updateRecipeIngredient(ingredient.id, { stock_cost_price: value, price: value }))}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+              <View style={styles.twoCol}>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.paid')}
+                    value={ingredient.stock_paid || ''}
+                    onChangeText={handleNumericChange((value) => updateRecipeIngredient(ingredient.id, { stock_paid: value }))}
+                    keyboardType="numeric"
+                  />
+                </View>
+                <View style={styles.colItem}>
+                  <FieldCard label={t('productEdit.stockImportTotal')} value={formatNumberInput(stockImportTotal)} mono disabled />
+                </View>
+              </View>
+              <FieldCard
+                label={t('suppliers.title')}
+                value={ingredient.stock_supplier || ''}
+                onPress={() => openSupplierModal(ingredient.id)}
+                onClearPress={() => updateRecipeIngredient(ingredient.id, { stock_supplier: '' })}
+                placeholder={t('productEdit.supplierNamePlaceholder')}
+                dropdown
+                clearable
+                editable={false}
+              />
+              {activeSupplierIngredientId === ingredient.id && (
+                <View style={styles.recipeInlineSelect}>
+                  <View style={styles.recipeInlineSearchBox}>
+                    <Ionicons name="search-outline" size={16} color={Colors.textSecondary} />
+                    <TextInput
+                      value={supplierSearch}
+                      onChangeText={setSupplierSearch}
+                      placeholder={t('productEdit.supplierSearchPlaceholder')}
+                      placeholderTextColor={Colors.textSecondary}
+                      style={styles.recipeInlineSearchInput}
+                      autoFocus
+                    />
+                    {loadingBrands && <ActivityIndicator size="small" color={Colors.primary} />}
+                  </View>
+                  <ScrollView
+                    style={styles.recipeInlineSelectList}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {supplierSearch.trim().length > 0 &&
+                      !brands.some((brandItem) => brandItem.name.trim().toLowerCase() === supplierSearch.trim().toLowerCase()) && (
+                        <TouchableOpacity
+                          style={[styles.categoryCreateOption, styles.recipeCreateOption]}
+                          onPress={() => handleCreateSupplier(supplierSearch.trim())}
+                          disabled={creatingSupplier}
+                          activeOpacity={0.85}
+                        >
+                          {creatingSupplier ? (
+                            <ActivityIndicator size="small" color={Colors.primary} />
+                          ) : (
+                            <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+                          )}
+                          <Text style={styles.categoryCreateText}>{t('productEdit.createSupplier')} "{supplierSearch.trim()}"</Text>
+                        </TouchableOpacity>
+                      )}
+                    {loadingBrands ? (
+                      <View style={styles.categoryLoading}>
+                        <ActivityIndicator size="small" color={Colors.primary} />
+                        <Text style={styles.categoryLoadingText}>{t('productEdit.loadingSuppliers')}</Text>
+                      </View>
+                    ) : (
+                      <>
+                        {(supplierSearch.trim().length > 0
+                          ? brands.filter((brandItem) =>
+                              brandItem.name.trim().toLowerCase().includes(supplierSearch.trim().toLowerCase()),
+                            )
+                          : brands
+                        ).map((brandItem) => {
+                          const selected = ingredient.stock_supplier?.trim().toLowerCase() === brandItem.name.trim().toLowerCase();
+                          return (
+                            <TouchableOpacity
+                              key={`supplier-${brandItem.id}-${brandItem.name}`}
+                              style={[styles.recipeInlineOption, selected && styles.categoryOptionActive]}
+                              onPress={() => handleSelectSupplier({ id: brandItem.id, name: brandItem.name })}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={[styles.categoryOptionText, selected && styles.categoryOptionTextActive]}>
+                                {brandItem.name}
+                              </Text>
+                              {selected && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
+                            </TouchableOpacity>
+                          );
+                        })}
+                        {brands.length === 0 && supplierSearch.trim().length === 0 && (
+                          <Text style={styles.categoryEmptyText}>{t('productEdit.noSupplierMatch')}</Text>
+                        )}
+                        {brands.length > 0 &&
+                          supplierSearch.trim().length > 0 &&
+                          !brands.some((brandItem) =>
+                            brandItem.name.trim().toLowerCase().includes(supplierSearch.trim().toLowerCase()),
+                          ) && (
+                            <Text style={styles.categoryEmptyText}>{t('productEdit.noSupplierMatch')}</Text>
+                          )}
+                      </>
+                    )}
+                  </ScrollView>
+                </View>
+              )}
+            </>
+          )}
+
+          <Text style={styles.extraTotalLine}>{t('productEdit.lineTotal', { value: formatMoney(itemCost * itemCount) })}</Text>
+        </View>
+      );
+    },
+    [
+      activeRecipeIngredientId,
+      activeSupplierIngredientId,
+      brands,
+      creatingSupplier,
+      handleCreateSupplier,
+      handleNumericChange,
+      handleSelectSupplier,
+      loadRecipeStocks,
+      loadingBrands,
+      loadingRecipeStocks,
+      openRecipeStockSelect,
+      openSupplierModal,
+      recipeSearch,
+      recipeStocks,
+      removeRecipeIngredient,
+      selectRecipeStock,
+      supplierSearch,
+      t,
+      updateRecipeIngredient,
+    ],
+  );
+
+  const renderComboProductItem = useCallback(
+    ({ item, index }: { item: ComboProductDraft; index: number }) => {
+      const filteredProducts = comboSearch.trim().length > 0
+        ? comboProductsCatalog.filter((productItem) =>
+          productItem.name.trim().toLowerCase().includes(comboSearch.trim().toLowerCase()))
+        : comboProductsCatalog;
+      const linkedIngredientsCount = item.product_id
+        ? allMakeProducts.filter((makeProduct) => makeProduct.productId === item.product_id).length
+        : 0;
+
+      return (
+        <View style={styles.recipeEditCard}>
+          <View style={styles.variantsHeader}>
+            <Text style={styles.variantName}>{t('productEdit.comboProductNumber', { index: index + 1 })}</Text>
+            <TouchableOpacity onPressIn={() => removeComboProduct(item.id)} activeOpacity={0.85}>
+              <Ionicons name="close-circle" size={20} color={Colors.danger} />
+            </TouchableOpacity>
+          </View>
+
+          <FieldCard
+            label={t('productEdit.comboProduct')}
+            value={item.product_name}
+            onPress={() => openComboProductSelect(item.id)}
+            placeholder={t('productEdit.comboProductPlaceholder')}
+            dropdown
+            editable={false}
+          />
+
+          {activeComboProductId === item.id && (
+            <View style={styles.recipeInlineSelect}>
+              <View style={styles.recipeInlineSearchBox}>
+                <Ionicons name="search-outline" size={16} color={Colors.textSecondary} />
+                <TextInput
+                  value={comboSearch}
+                  onChangeText={setComboSearch}
+                  placeholder={t('productEdit.comboProductSearchPlaceholder')}
+                  placeholderTextColor={Colors.textSecondary}
+                  style={styles.recipeInlineSearchInput}
+                />
+                {comboSearch.length > 0 && (
+                  <TouchableOpacity onPressIn={() => setComboSearch('')} hitSlop={8} activeOpacity={0.85}>
+                    <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <ScrollView
+                style={styles.recipeInlineSelectList}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {filteredProducts.length > 0 ? (
+                  filteredProducts.map((productItem) => {
+                    const selected = item.product_id ? item.product_id === productItem.id : false;
+                    return (
+                      <TouchableOpacity
+                        key={`combo-product-${productItem.id}`}
+                        style={[styles.recipeInlineOption, selected && styles.categoryOptionActive]}
+                        onPress={() => selectComboProduct(item.id, productItem)}
+                        activeOpacity={0.85}
+                      >
+                        <View style={styles.extraInfo}>
+                          <Text style={[styles.recipeSuggestionName, selected && styles.categoryOptionTextActive]}>
+                            {productItem.name}
+                          </Text>
+                          <Text style={styles.recipeSuggestionMeta}>
+                            SKU: {productItem.sku || '--'} · {formatMoney(productItem.price)}
+                          </Text>
+                        </View>
+                        {selected && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.categoryEmptyText}>{t('productEdit.noComboProductMatch')}</Text>
+                )}
+              </ScrollView>
+            </View>
+          )}
+
+          <FieldCard
+            label={t('productEdit.usedQuantity')}
+            value={item.quantity}
+            onChangeText={handleNumericChange((value) => updateComboProduct(item.id, { quantity: value }))}
+            keyboardType="numeric"
+            placeholder="1"
+          />
+          <Text style={styles.extraMeta}>
+            {t('productEdit.comboLinkedIngredients', { count: linkedIngredientsCount })}
+          </Text>
+        </View>
+      );
+    },
+    [
+      activeComboProductId,
+      allMakeProducts,
+      comboProductsCatalog,
+      comboSearch,
+      handleNumericChange,
+      openComboProductSelect,
+      removeComboProduct,
+      selectComboProduct,
+      t,
+      updateComboProduct,
+    ],
+  );
+
+  const renderRecipeFooter = useCallback(
+    () => (
+      <>
+        <TouchableOpacity style={styles.recipeAddButton} onPress={addRecipeIngredient} activeOpacity={0.85}>
+          <Ionicons name="add-circle-outline" size={16} color={Colors.primary} />
+          <Text style={styles.variantGenerateText}>{t('productEdit.addIngredient')}</Text>
+        </TouchableOpacity>
+        <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
+      </>
+    ),
+    [addRecipeIngredient, recipeCost, t],
+  );
+
+  const renderComboFooter = useCallback(
+    () => (
+      <>
+        <TouchableOpacity style={styles.recipeAddButton} onPress={addComboProduct} activeOpacity={0.85}>
+          <Ionicons name="add-circle-outline" size={16} color={Colors.primary} />
+          <Text style={styles.variantGenerateText}>{t('productEdit.addComboProduct')}</Text>
+        </TouchableOpacity>
+        <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
+      </>
+    ),
+    [addComboProduct, recipeCost, t],
+  );
 
   const addImages = useCallback((items: PhotoItem[]) => {
     if (items.length === 0) return;
@@ -1507,6 +2712,29 @@ export function ProductEditScreen() {
       { text: t('common.cancel'), style: 'cancel' },
     ]);
   }, [pickFromLibrary, takePhoto]);
+
+  const openBarcodeScanner = useCallback(async () => {
+    if (!cameraPermission?.granted) {
+      const permission = await requestCameraPermission();
+      if (!permission.granted) {
+        Alert.alert(t('scan.cameraPermissionTitle'), t('scan.cameraPermissionText'));
+        return;
+      }
+    }
+
+    setScannerPaused(false);
+    setShowBarcodeScanner(true);
+  }, [cameraPermission?.granted, requestCameraPermission, t]);
+
+  const handleBarcodeScanned = useCallback(
+    ({ data }: BarcodeScanningResult) => {
+      if (scannerPaused) return;
+      setScannerPaused(true);
+      setBarcode(data || '');
+      setShowBarcodeScanner(false);
+    },
+    [scannerPaused],
+  );
 
   const handleSelectCategory = useCallback((nextCategory: SelectOption) => {
     setCategoryId(Number(nextCategory.id));
@@ -1576,8 +2804,49 @@ export function ProductEditScreen() {
     );
   }, []);
 
-  const handleAddFnbOption = useCallback((label: string) => {
-    Alert.alert(t('productEdit.comingSoon'), t('productEdit.optionFlowComingSoon', { label: label.toLowerCase() }));
+  const handleFnbOptionChange = useCallback((
+    type: 'size' | 'topping',
+    optionId: string | number,
+    field: 'name' | 'value' | 'promo_price',
+    inputValue: string,
+  ) => {
+    const setter = type === 'size' ? setFnbSizeOptions : setFnbToppingOptions;
+    setter((current) =>
+      current.map((option, index) => {
+        const id = String(option.id ?? index);
+        if (id !== String(optionId)) return option;
+
+        if (field === 'name') {
+          return {
+            ...option,
+            name: inputValue,
+            label: inputValue,
+          };
+        }
+
+        if (field === 'promo_price') {
+          return {
+            ...option,
+            promo_price: formatNumberInput(inputValue),
+          };
+        }
+
+        return {
+          ...option,
+          value: formatNumberInput(inputValue),
+        };
+      }),
+    );
+  }, []);
+
+  const handleAddFnbOption = useCallback((type: 'size' | 'topping') => {
+    const setter = type === 'size' ? setFnbSizeOptions : setFnbToppingOptions;
+    setter((current) => [...current, makeFnbOption('', '0', '0')]);
+  }, []);
+
+  const handleRemoveFnbOption = useCallback((type: 'size' | 'topping', optionId: string | number) => {
+    const setter = type === 'size' ? setFnbSizeOptions : setFnbToppingOptions;
+    setter((current) => current.filter((option, index) => String(option.id ?? index) !== String(optionId)));
   }, []);
 
   const handleAddSizeOption = useCallback((nextSize: SelectOption) => {
@@ -1636,8 +2905,7 @@ export function ProductEditScreen() {
       try {
         const nextBrand = await createBrand(normalizedName);
         setBrands((current) => {
-          const exists = current.some((item) => item.id === nextBrand.id);
-          return exists ? current : [nextBrand, ...current];
+          return mergeBrandOptions(current, [nextBrand]);
         });
         handleSelectBrand(nextBrand);
       } catch (err) {
@@ -1747,168 +3015,6 @@ export function ProductEditScreen() {
     ]);
   };
 
-  const renderExtraSections = () => {
-    if (!product) return null;
-
-    return (
-      <>
-        <View style={styles.card}>
-          <Text style={styles.sectionMutedTitle}>{t('productEdit.linkedRecipeInventory')}</Text>
-          {makeProducts.length === 0 ? (
-            <Text style={styles.extraEmpty}>{t('productEdit.noMakeProduct')}</Text>
-          ) : !isFnB && makeProducts.length === 1 ? (
-            <>
-              <Text style={styles.extraLine}>{t('productEdit.warehouse')}: {makeProducts[0].stock?.name || t('common.updatedNotAvailable')}</Text>
-              <Text style={styles.extraLine}>
-                {t('productEdit.inventory')}: {(makeProducts[0].stock?.count || 0).toLocaleString('vi-VN')}{' '}
-                {makeProducts[0].stock?.unit || ''}
-              </Text>
-              <Text style={styles.extraLine}>
-                {t('productEdit.stockCost')}: {formatMoney(makeProducts[0].stock?.averagePrice || makeProducts[0].stock?.latestPrice)}
-              </Text>
-            </>
-          ) : (
-            <>
-              {makeProducts.map((item, index) => {
-                const itemCost = item.stock?.averagePrice || item.stock?.latestPrice || 0;
-                return (
-                  <View key={`${item.stock?.id || index}-${item.stock?.name || 'stock'}`} style={styles.extraRow}>
-                    <View style={styles.extraInfo}>
-                      <Text style={styles.extraName}>{item.stock?.name || t('productEdit.ingredient')}</Text>
-                      <Text style={styles.extraMeta}>
-                        {item.count.toLocaleString('vi-VN')} {item.stock?.unit || ''} x {formatMoney(itemCost)}
-                      </Text>
-                    </View>
-                    <Text style={styles.extraTotal}>{formatMoney(item.count * itemCost)}</Text>
-                  </View>
-                );
-              })}
-              <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
-            </>
-          )}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionMutedTitle}>{t('productEdit.industryOptions')}</Text>
-          {(() => {
-            if (isFnB) {
-              const fnbGroups: Array<[string, ProductVariantOption[] | undefined, () => void]> = [
-                [product.sizeTitle || t('productEdit.size'), sizeOptions, () => setSizeSuggestModalVisible(true)],
-                [product.toppingTitle || 'Topping', product.toppings, () => handleAddFnbOption('Topping')],
-              ];
-              const hasFnbOptions = fnbGroups.some(([, options]) => options?.length) || isCafe;
-
-              return hasFnbOptions ? (
-                <>
-                  {fnbGroups.map(([title, options, onAdd]) => (
-                    <View key={title} style={styles.optionBlock}>
-                      <View style={styles.optionHeaderRow}>
-                        <Text style={styles.optionTitle}>{title}</Text>
-                        <TouchableOpacity style={styles.optionAddButton} onPress={onAdd} activeOpacity={0.85}>
-                          <Ionicons name="add" size={16} color={Colors.primary} />
-                        </TouchableOpacity>
-                      </View>
-                      {options?.length ? (
-                        <View style={styles.optionChips}>
-                          {sortOptionsSmallToLarge(options).map((option, index) => (
-                            <View key={`${title}-${optionName(option)}-${index}`} style={styles.optionChip}>
-                              <Text style={styles.optionChipText}>{optionName(option)}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      ) : (
-                        <Text style={styles.extraEmpty}>{t('productEdit.noOption', { label: title.toLowerCase() })}</Text>
-                      )}
-                    </View>
-                  ))}
-
-                  {isCafe && (
-                    <>
-                      <View style={styles.optionBlock}>
-                        <Text style={styles.optionTitle}>{product.iceTitle || t('productEdit.ice')}</Text>
-                        <View style={styles.percentOptionRow}>
-                          {FNB_PERCENT_OPTIONS.map((value) => {
-                            const selected = selectedIce.includes(value);
-                            return (
-                              <TouchableOpacity
-                                key={`ice-${value}`}
-                                style={[styles.percentOption, selected && styles.percentOptionActive]}
-                                onPress={() => togglePercentOption(value, setSelectedIce)}
-                                activeOpacity={0.85}
-                              >
-                                <Text style={[styles.percentOptionText, selected && styles.percentOptionTextActive]}>
-                                  {value}%
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                      </View>
-
-                      <View style={styles.optionBlock}>
-                        <Text style={styles.optionTitle}>{product.sugarTitle || t('productEdit.sugar')}</Text>
-                        <View style={styles.percentOptionRow}>
-                          {FNB_PERCENT_OPTIONS.map((value) => {
-                            const selected = selectedSugar.includes(value);
-                            return (
-                              <TouchableOpacity
-                                key={`sugar-${value}`}
-                                style={[styles.percentOption, selected && styles.percentOptionActive]}
-                                onPress={() => togglePercentOption(value, setSelectedSugar)}
-                                activeOpacity={0.85}
-                              >
-                                <Text style={[styles.percentOptionText, selected && styles.percentOptionTextActive]}>
-                                  {value}%
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                      </View>
-                    </>
-                  )}
-                </>
-              ) : (
-                <Text style={styles.extraEmpty}>{t('productEdit.noIndustryOption')}</Text>
-              );
-            }
-
-            const optionGroups: Array<[string, ProductVariantOption[] | undefined]> = [];
-
-            optionGroups.push([product.sizeTitle || t('productEdit.size'), product.sizeOptions]);
-            if (isFashion) {
-              optionGroups.push([product.colorTitle || t('productEdit.color'), product.colorOptions]);
-            }
-            if (isFashion || isRetail) {
-              optionGroups.push([product.materialTitle || t('productEdit.material'), product.materialOptions]);
-            }
-
-            const visibleGroups = optionGroups.filter(([, options]) => Array.isArray(options) && options.length > 0);
-
-            return visibleGroups.length > 0 ? (
-              <>
-                {visibleGroups.map(([title, options]) => (
-                  <View key={String(title)} style={styles.optionBlock}>
-                    <Text style={styles.optionTitle}>{String(title)}</Text>
-                    <View style={styles.optionChips}>
-                      {(options || []).map((option, index) => (
-                        <View key={`${String(title)}-${optionName(option)}-${index}`} style={styles.optionChip}>
-                          <Text style={styles.optionChipText}>{optionName(option)}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                ))}
-              </>
-            ) : (
-              <Text style={styles.extraEmpty}>{t('productEdit.noIndustryOption')}</Text>
-            );
-          })()}
-        </View>
-      </>
-    );
-  };
-
   const renderVariantAttributeEditor = (
     title: string,
     options: ProductVariantOption[],
@@ -1916,6 +3022,7 @@ export function ProductEditScreen() {
     setValue: (text: string) => void,
     setOptions: React.Dispatch<React.SetStateAction<ProductVariantOption[]>>,
     placeholder: string,
+    inputRef: React.RefObject<TextInput | null>,
   ) => (
     <View style={styles.variantEditorBlock}>
       <Text style={styles.optionTitle}>{title}</Text>
@@ -1926,12 +3033,20 @@ export function ProductEditScreen() {
           placeholder={placeholder}
           placeholderTextColor={Colors.textSecondary}
           style={styles.variantTagInput}
+          ref={inputRef}
           returnKeyType="done"
-          onSubmitEditing={() => addVariantOption(value, setOptions, setValue)}
+          blurOnSubmit={false}
+          onSubmitEditing={() => {
+            addVariantOption(value, setOptions, setValue);
+            requestAnimationFrame(() => inputRef.current?.focus());
+          }}
         />
         <TouchableOpacity
           style={styles.variantTagAddButton}
-          onPress={() => addVariantOption(value, setOptions, setValue)}
+          onPressIn={() => {
+            addVariantOption(value, setOptions, setValue);
+            requestAnimationFrame(() => inputRef.current?.focus());
+          }}
           activeOpacity={0.85}
         >
           <Ionicons name="add" size={18} color={Colors.primary} />
@@ -2051,21 +3166,51 @@ export function ProductEditScreen() {
                   <FieldCard label="SKU" value={sku} mono disabled />
                 </View>
                 <View style={styles.colItem}>
-                  <FieldCard label={t('productEdit.barcode')} value={barcode} onChangeText={setBarcode} mono scan />
+                  <FieldCard
+                    label={t('productEdit.barcode')}
+                    value={barcode}
+                    onChangeText={setBarcode}
+                    onScanPress={openBarcodeScanner}
+                    mono
+                    scan
+                  />
                 </View>
               </View>
             ) : (
               <FieldCard label="SKU" value={sku} mono disabled />
             )}
 
-            <FieldCard
-              label={t('productEdit.category')}
-              value={category}
-              onPress={() => setCategoryModalVisible(true)}
-              placeholder={t('productEdit.categoryPlaceholder')}
-              dropdown
-              editable={false}
-            />
+            {isFnB ? (
+              <View style={styles.twoCol}>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.category')}
+                    value={category}
+                    onPress={() => setCategoryModalVisible(true)}
+                    placeholder={t('productEdit.categoryPlaceholder')}
+                    dropdown
+                    editable={false}
+                  />
+                </View>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.saleUnit')}
+                    value={saleUnit}
+                    onChangeText={setSaleUnit}
+                    placeholder={t('productEdit.saleUnitPlaceholder')}
+                  />
+                </View>
+              </View>
+            ) : (
+              <FieldCard
+                label={t('productEdit.category')}
+                value={category}
+                onPress={() => setCategoryModalVisible(true)}
+                placeholder={t('productEdit.categoryPlaceholder')}
+                dropdown
+                editable={false}
+              />
+            )}
             <FieldCard
               label={t('productEdit.brand')}
               value={brand}
@@ -2100,28 +3245,16 @@ export function ProductEditScreen() {
               </View>
             </View>
 
-            <View style={styles.twoCol}>
-              <View style={styles.colItem}>
-                <FieldCard
-                  label={t(isFnB ? 'productEdit.recipeCostPrice' : 'productEdit.costPrice')}
-                  value={cost}
-                  onChangeText={handleNumericChange(setCost)}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  mono={isFnB}
-                />
-              </View>
-              <View style={styles.colItem}>
-                <FieldCard
-                  label={t('productEdit.unit')}
-                  value={unit}
-                  onPress={() => setUnitModalVisible(true)}
-                  placeholder={t('productEdit.unitPlaceholder')}
-                  dropdown
-                  editable={false}
-                />
-              </View>
-            </View>
+            {!isFnB && (
+              <FieldCard
+                label={t('productEdit.unit')}
+                value={unit}
+                onPress={() => setUnitModalVisible(true)}
+                placeholder={t('productEdit.unitPlaceholder')}
+                dropdown
+                editable={false}
+              />
+            )}
 
             <View style={styles.profitHint}>
               <Text style={styles.profitHintText}>
@@ -2130,70 +3263,309 @@ export function ProductEditScreen() {
                   {profitMeta.profit.toLocaleString('vi-VN')} {t('home.currency')} ({profitMeta.percent}%)
                 </Text>
               </Text>
+              {hasVariantPricing ? (
+                <Text style={styles.profitHintText}>
+                  {t('productEdit.priceFromVariantNote')}
+                </Text>
+              ) : null}
             </View>
           </View>
 
-          <View style={styles.card}>
-            <View style={styles.variantsHeader}>
-              <Text style={styles.sectionMutedTitle}>{t(isFnB ? 'productEdit.recipe' : 'productEdit.recipeCombo')}</Text>
-              <TouchableOpacity onPress={openRecipeModal} activeOpacity={0.85}>
-                <Text style={styles.variantsAdd}>+ {t('customers.addTag')}</Text>
-              </TouchableOpacity>
+          {!isFnB && canUseDirectInventoryMode && (
+            <View style={styles.card}>
+              <Text style={styles.sectionMutedTitle}>{t('productEdit.inventoryMode')}</Text>
+              <View style={styles.modeToggleWrap}>
+                <TouchableOpacity
+                  style={[styles.modeToggleButton, !useRecipeMode && styles.modeToggleButtonActive]}
+                  onPress={() => switchInventoryMode('direct')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.modeToggleText, !useRecipeMode && styles.modeToggleTextActive]}>
+                    {t('productEdit.inventoryModeDirect')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modeToggleButton, useRecipeMode && styles.modeToggleButtonActive]}
+                  onPress={() => switchInventoryMode('recipe')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.modeToggleText, useRecipeMode && styles.modeToggleTextActive]}>
+                    {t('productEdit.inventoryModeRecipe')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {!useRecipeMode ? (
+                <>
+                  <View style={styles.twoCol}>
+                    <View style={styles.colItem}>
+                      <FieldCard
+                        label={t('productEdit.importQuantity')}
+                        value={stock}
+                        onChangeText={handleNumericChange(setStock)}
+                        keyboardType="numeric"
+                        mono
+                      />
+                    </View>
+                    <View style={styles.colItem}>
+                      <FieldCard
+                        label={t('productEdit.costPrice')}
+                        value={cost}
+                        onChangeText={handleNumericChange(setCost)}
+                        keyboardType="numeric"
+                        mono
+                        disabled={hasRecipeConfig}
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.twoCol}>
+                    <View style={styles.colItem}>
+                      <FieldCard
+                        label={t('productEdit.totalImportedValue')}
+                        value={formatNumberInput(totalImportedValue)}
+                        mono
+                        disabled
+                      />
+                    </View>
+                    <View style={styles.colItem}>
+                      <FieldCard
+                        label={t('productEdit.paid')}
+                        value={stockPaid}
+                        onChangeText={handleNumericChange(setStockPaid)}
+                        keyboardType="numeric"
+                        mono
+                      />
+                    </View>
+                  </View>
+                  <FieldCard
+                    label={t('suppliers.title')}
+                    value={stockSupplier}
+                    onPress={openDirectSupplierPicker}
+                    onClearPress={() => setStockSupplier('')}
+                    placeholder={t('productEdit.supplierNamePlaceholder')}
+                    dropdown
+                    clearable
+                    editable={false}
+                  />
+                  {directSupplierPickerVisible && (
+                    <View style={styles.recipeInlineSelect}>
+                      <View style={styles.recipeInlineSearchBox}>
+                        <Ionicons name="search-outline" size={16} color={Colors.textSecondary} />
+                        <TextInput
+                          value={directSupplierSearch}
+                          onChangeText={setDirectSupplierSearch}
+                          placeholder={t('productEdit.supplierSearchPlaceholder')}
+                          placeholderTextColor={Colors.textSecondary}
+                          style={styles.recipeInlineSearchInput}
+                          autoFocus
+                        />
+                        {loadingBrands && <ActivityIndicator size="small" color={Colors.primary} />}
+                      </View>
+                      <ScrollView
+                        style={styles.recipeInlineSelectList}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        {directSupplierSearch.trim().length > 0 &&
+                          !brands.some((brandItem) => brandItem.name.trim().toLowerCase() === directSupplierSearch.trim().toLowerCase()) && (
+                            <TouchableOpacity
+                              style={[styles.categoryCreateOption, styles.recipeCreateOption]}
+                              onPress={() => handleCreateDirectSupplier(directSupplierSearch.trim())}
+                              disabled={creatingSupplier}
+                              activeOpacity={0.85}
+                            >
+                              {creatingSupplier ? (
+                                <ActivityIndicator size="small" color={Colors.primary} />
+                              ) : (
+                                <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+                              )}
+                              <Text style={styles.categoryCreateText}>{t('productEdit.createSupplier')} "{directSupplierSearch.trim()}"</Text>
+                            </TouchableOpacity>
+                          )}
+                        {loadingBrands ? (
+                          <View style={styles.categoryLoading}>
+                            <ActivityIndicator size="small" color={Colors.primary} />
+                            <Text style={styles.categoryLoadingText}>{t('productEdit.loadingSuppliers')}</Text>
+                          </View>
+                        ) : (
+                          <>
+                            {(directSupplierSearch.trim().length > 0
+                              ? brands.filter((brandItem) =>
+                                  brandItem.name.trim().toLowerCase().includes(directSupplierSearch.trim().toLowerCase()),
+                                )
+                              : brands
+                            ).map((brandItem) => {
+                              const selected = stockSupplier.trim().toLowerCase() === brandItem.name.trim().toLowerCase();
+                              return (
+                                <TouchableOpacity
+                                  key={`direct-supplier-${brandItem.id}-${brandItem.name}`}
+                                  style={[styles.recipeInlineOption, selected && styles.categoryOptionActive]}
+                                  onPress={() => handleSelectDirectSupplier(brandItem.name)}
+                                  activeOpacity={0.85}
+                                >
+                                  <Text style={[styles.categoryOptionText, selected && styles.categoryOptionTextActive]}>
+                                    {brandItem.name}
+                                  </Text>
+                                  {selected && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
+                                </TouchableOpacity>
+                              );
+                            })}
+                            {brands.length === 0 && directSupplierSearch.trim().length === 0 && (
+                              <Text style={styles.categoryEmptyText}>{t('productEdit.noSupplierMatch')}</Text>
+                            )}
+                            {brands.length > 0 &&
+                              directSupplierSearch.trim().length > 0 &&
+                              !brands.some((brandItem) =>
+                                brandItem.name.trim().toLowerCase().includes(directSupplierSearch.trim().toLowerCase()),
+                              ) && (
+                                <Text style={styles.categoryEmptyText}>{t('productEdit.noSupplierMatch')}</Text>
+                              )}
+                          </>
+                        )}
+                      </ScrollView>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity style={styles.recipeCenteredAddButton} onPress={openRecipeModal} activeOpacity={0.85}>
+                    <Text style={styles.recipeHeaderAddText}>+ {t('customers.addTag')}</Text>
+                  </TouchableOpacity>
+                  {comboByProduct && comboProducts.length > 0 ? (
+                    <>
+                      {comboProducts.slice(0, 3).map((comboItem, index) => (
+                        <View key={comboItem.id} style={[styles.extraRow, index > 0 && styles.recipeCompactBorder]}>
+                          <View style={styles.extraInfo}>
+                            <Text style={styles.extraName}>{comboItem.product_name || t('productEdit.unnamedProduct')}</Text>
+                            <Text style={styles.extraMeta}>
+                              {t('productEdit.usedQuantity')}: {comboItem.quantity || '0'}
+                            </Text>
+                          </View>
+                        </View>
+                      ))}
+                      {comboProducts.length > 3 && (
+                        <Text style={styles.extraEmpty}>{t('productEdit.moreComboProducts', { count: comboProducts.length - 3 })}</Text>
+                      )}
+                      {comboExpansion.unresolved.length > 0 && (
+                        <Text style={styles.extraMetaWarn}>
+                          {t('productEdit.comboMissingRecipeMessage', {
+                            products: comboExpansion.unresolved
+                              .map((item) => item.productName || `#${item.productId || ''}`)
+                              .filter(Boolean)
+                              .join(', '),
+                          })}
+                        </Text>
+                      )}
+                      <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
+                    </>
+                  ) : effectiveRecipeIngredients.length > 0 ? (
+                    <>
+                      {effectiveRecipeIngredients.slice(0, 3).map((ingredient, index) => {
+                        const itemCost = parseCurrency(ingredient.price || ingredient.stock_cost_price || '');
+                        const itemCount = parseDecimalInput(ingredient.quantity);
+                        return (
+                          <View key={ingredient.id} style={[styles.extraRow, index > 0 && styles.recipeCompactBorder]}>
+                            <View style={styles.extraInfo}>
+                              <Text style={styles.extraName}>{ingredient.stock_name || t('productEdit.unnamedIngredient')}</Text>
+                              <Text style={styles.extraMeta}>
+                                {ingredient.quantity || 0} {ingredient.unit || ''} x {formatMoney(itemCost)}
+                              </Text>
+                            </View>
+                            <Text style={styles.extraTotal}>{formatMoney(itemCost * itemCount)}</Text>
+                          </View>
+                        );
+                      })}
+                      {effectiveRecipeIngredients.length > 3 && (
+                        <Text style={styles.extraEmpty}>{t('productEdit.moreIngredients', { count: effectiveRecipeIngredients.length - 3 })}</Text>
+                      )}
+                      <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.extraEmpty}>{t('productEdit.comboHint')}</Text>
+                  )}
+                </>
+              )}
             </View>
-            {!isFnB && (
-              <ToggleItem
-                label={t('productEdit.comboRecipeProduct')}
-                value={isCombo || recipeIngredients.length > 0}
-                onPress={() => {
-                  const nextActive = !(isCombo || recipeIngredients.length > 0);
-                  setIsCombo(nextActive);
-                  if (nextActive) {
-                    openRecipeModal();
-                  } else {
-                    setRecipeIngredients([]);
-                  }
-                }}
-                last
-              />
-            )}
-            {recipeIngredients.length > 0 ? (
-              <>
-                {recipeIngredients.slice(0, 3).map((ingredient, index) => {
-                  const itemCost = parseCurrency(ingredient.price || ingredient.stock_cost_price || '');
-                  const itemCount = parseDecimalInput(ingredient.quantity);
-                  return (
-                    <View key={ingredient.id} style={[styles.extraRow, index > 0 && styles.recipeCompactBorder]}>
+          )}
+
+          {(isFnB || !canUseDirectInventoryMode) && useRecipeMode && (
+            <View style={styles.card}>
+              <View style={styles.variantsHeader}>
+                <Text style={styles.sectionMutedTitle}>{t(isFnB ? 'productEdit.recipe' : 'productEdit.recipeCombo')}</Text>
+                <TouchableOpacity style={styles.recipeHeaderAddButton} onPress={openRecipeModal} activeOpacity={0.85}>
+                  <Text style={styles.recipeHeaderAddText}>+ {t('customers.addTag')}</Text>
+                </TouchableOpacity>
+              </View>
+              {comboByProduct && comboProducts.length > 0 ? (
+                <>
+                  {comboProducts.slice(0, 3).map((comboItem, index) => (
+                    <View key={comboItem.id} style={[styles.extraRow, index > 0 && styles.recipeCompactBorder]}>
                       <View style={styles.extraInfo}>
-                        <Text style={styles.extraName}>{ingredient.stock_name || t('productEdit.unnamedIngredient')}</Text>
+                        <Text style={styles.extraName}>{comboItem.product_name || t('productEdit.unnamedProduct')}</Text>
                         <Text style={styles.extraMeta}>
-                          {ingredient.quantity || 0} {ingredient.unit || ''} x {formatMoney(itemCost)}
+                          {t('productEdit.usedQuantity')}: {comboItem.quantity || '0'}
                         </Text>
                       </View>
-                      <Text style={styles.extraTotal}>{formatMoney(itemCost * itemCount)}</Text>
                     </View>
-                  );
-                })}
-                {recipeIngredients.length > 3 && (
-                  <Text style={styles.extraEmpty}>{t('productEdit.moreIngredients', { count: recipeIngredients.length - 3 })}</Text>
-                )}
-                <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
-              </>
-            ) : (
-              <Text style={styles.extraEmpty}>
-                {isFnB
-                  ? t('productEdit.addIngredientHint')
-                  : t('productEdit.comboHint')}
-              </Text>
-            )}
-          </View>
+                  ))}
+                  {comboProducts.length > 3 && (
+                    <Text style={styles.extraEmpty}>{t('productEdit.moreComboProducts', { count: comboProducts.length - 3 })}</Text>
+                  )}
+                  {comboExpansion.unresolved.length > 0 && (
+                    <Text style={styles.extraMetaWarn}>
+                      {t('productEdit.comboMissingRecipeMessage', {
+                        products: comboExpansion.unresolved
+                          .map((item) => item.productName || `#${item.productId || ''}`)
+                          .filter(Boolean)
+                          .join(', '),
+                      })}
+                    </Text>
+                  )}
+                  <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
+                </>
+              ) : effectiveRecipeIngredients.length > 0 ? (
+                <>
+                  {effectiveRecipeIngredients.slice(0, 3).map((ingredient, index) => {
+                    const itemCost = parseCurrency(ingredient.price || ingredient.stock_cost_price || '');
+                    const itemCount = parseDecimalInput(ingredient.quantity);
+                    return (
+                      <View key={ingredient.id} style={[styles.extraRow, index > 0 && styles.recipeCompactBorder]}>
+                        <View style={styles.extraInfo}>
+                          <Text style={styles.extraName}>{ingredient.stock_name || t('productEdit.unnamedIngredient')}</Text>
+                          <Text style={styles.extraMeta}>
+                            {ingredient.quantity || 0} {ingredient.unit || ''} x {formatMoney(itemCost)}
+                          </Text>
+                        </View>
+                        <Text style={styles.extraTotal}>{formatMoney(itemCost * itemCount)}</Text>
+                      </View>
+                    );
+                  })}
+                  {effectiveRecipeIngredients.length > 3 && (
+                    <Text style={styles.extraEmpty}>{t('productEdit.moreIngredients', { count: effectiveRecipeIngredients.length - 3 })}</Text>
+                  )}
+                  <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
+                </>
+              ) : (
+                <Text style={styles.extraEmpty}>
+                  {isFnB
+                    ? t('productEdit.addIngredientHint')
+                    : t('productEdit.comboHint')}
+                </Text>
+              )}
+            </View>
+          )}
 
           {showVariantCard && (
             <View style={styles.card}>
               <View style={styles.variantsHeader}>
                 <Text style={styles.sectionMutedTitle}>🎨 {t('productEdit.variants')}</Text>
                 {showVariantBuilder && (
-                  <TouchableOpacity onPress={() => setVariantModalVisible(true)} activeOpacity={0.85}>
-                    <Text style={styles.variantsAdd}>+ {t('customers.addTag')}</Text>
+                  <TouchableOpacity
+                    style={styles.recipeHeaderAddButton}
+                    onPress={() => setVariantModalVisible(true)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.recipeHeaderAddText}>+ {t('customers.addTag')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -2224,17 +3596,16 @@ export function ProductEditScreen() {
             </View>
           )}
 
-          {showDirectStock && (
+          {hasVariantInventory && (
             <View style={styles.card}>
               <Text style={styles.sectionMutedTitle}>📦 {t('productEdit.inventory')}</Text>
               <View style={styles.twoCol}>
                 <View style={styles.colItem}>
                   <FieldCard
                     label={t('productEdit.currentStock')}
-                    value={stock}
-                    onChangeText={handleNumericChange(setStock)}
-                    keyboardType="numeric"
+                    value={formatNumberInput(variantInventorySummary.totalStock)}
                     mono
+                    disabled
                   />
                 </View>
                 <View style={styles.colItem}>
@@ -2247,11 +3618,122 @@ export function ProductEditScreen() {
                   />
                 </View>
               </View>
-              <FieldCard label={t('productEdit.warehouse')} value={warehouse} onChangeText={setWarehouse} dropdown placeholder={t('products.stock.noLink')} />
+              <View style={styles.twoCol}>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.variantOutOfStock')}
+                    value={formatNumberInput(variantInventorySummary.outOfStock)}
+                    mono
+                    disabled
+                  />
+                </View>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.variantLowStock')}
+                    value={formatNumberInput(variantInventorySummary.lowStock)}
+                    mono
+                    disabled
+                  />
+                </View>
+              </View>
+              <FieldCard
+                label={t('productEdit.variantInventoryValue')}
+                value={formatNumberInput(variantInventorySummary.totalValue)}
+                mono
+                disabled
+              />
             </View>
           )}
 
-          {renderExtraSections()}
+          {showRecipeInventoryNotice && (
+            <View style={styles.card}>
+              <Text style={styles.sectionMutedTitle}>📦 {t('productEdit.inventory')}</Text>
+              <Text style={styles.extraMeta}>{t('productEdit.inventoryManagedByRecipe')}</Text>
+              {recipeInventorySummary.rows.length > 0 ? (
+                <>
+                  {recipeInventorySummary.rows.map((row, index) => (
+                    <View key={`${row.id}-${index}`} style={[styles.extraRow, index > 0 && styles.recipeCompactBorder]}>
+                      <View style={styles.extraInfo}>
+                        <Text style={styles.extraName}>{row.name}</Text>
+                        <Text style={styles.extraMeta}>
+                          {t('productEdit.availableStock')}: {row.availableDisplay} {row.unit || ''}
+                        </Text>
+                        <Text style={styles.extraMeta}>
+                          {t('productEdit.usagePerCombo')}: {row.usageDisplay} {row.unit || ''} · {t('productEdit.comboCanMake')}:{' '}
+                          {formatNumberInput(row.combosPossible)}
+                        </Text>
+                        {row.insufficient && (
+                          <Text style={styles.extraMetaWarn}>{t('productEdit.insufficientForOneCombo')}</Text>
+                        )}
+                      </View>
+                      <Text style={styles.extraTotal}>{formatMoney(row.inventoryValue)}</Text>
+                    </View>
+                  ))}
+                  <Text style={styles.extraTotalLine}>
+                    {t('productEdit.maxComboFromIngredients', { count: formatNumberInput(recipeInventorySummary.maxComboByStock) })}
+                  </Text>
+                  <Text style={styles.extraTotalLine}>
+                    {t('productEdit.totalIngredientInventoryValue', { value: formatMoney(recipeInventorySummary.totalValue) })}
+                  </Text>
+                  {recipeInventorySummary.insufficientCount > 0 && (
+                    <Text style={styles.extraMetaWarn}>
+                      {t('productEdit.insufficientIngredientCount', { count: recipeInventorySummary.insufficientCount })}
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <Text style={styles.extraEmpty}>{t('productEdit.noIngredientInventory')}</Text>
+              )}
+            </View>
+          )}
+
+          {showDirectStock && !showRetailImportCard && (
+            <View style={styles.card}>
+              <Text style={styles.sectionMutedTitle}>📦 {t('productEdit.inventory')}</Text>
+              <View style={styles.twoCol}>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.currentStock')}
+                    value={stock}
+                    onChangeText={handleNumericChange(setStock)}
+                    keyboardType="numeric"
+                    mono
+                    disabled={isDirectStockReadOnly}
+                  />
+                </View>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.lowStockAlert')}
+                    value={minStock}
+                    onChangeText={handleNumericChange(setMinStock)}
+                    keyboardType="numeric"
+                    mono
+                  />
+                </View>
+              </View>
+              <View style={styles.twoCol}>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.remainingStockValue')}
+                    value={formatNumberInput(remainingStockValue)}
+                    mono
+                    disabled
+                  />
+                </View>
+                <View style={styles.colItem}>
+                  <FieldCard
+                    label={t('productEdit.totalImportedValue')}
+                    value={formatNumberInput(totalImportedValue)}
+                    mono
+                    disabled
+                  />
+                </View>
+              </View>
+              {isDirectStockReadOnly && (
+                <Text style={styles.extraMeta}>{t('productEdit.currentStockSyncedHint')}</Text>
+              )}
+            </View>
+          )}
 
           <View style={styles.card}>
             <ToggleItem
@@ -2282,11 +3764,17 @@ export function ProductEditScreen() {
           <Modal
             visible={recipeModalVisible}
             transparent
-            animationType="slide"
+            animationType="fade"
             onRequestClose={closeRecipeModal}
           >
-            <View style={styles.recipeModalBackdrop}>
-              <View style={[styles.recipeModalSheet, { marginTop: insets.top + 56, paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <View style={styles.modalBackdropStatic}>
+              <Pressable style={styles.modalBackdropPressable} onPressIn={closeRecipeModal} />
+              <KeyboardAvoidingView
+                style={styles.recipeModalBackdrop}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={0}
+              >
+              <Animated.View style={[styles.recipeModalSheet, { marginTop: insets.top + 56, paddingBottom: Math.max(insets.bottom, 12), transform: [{ translateY: recipeSheetTranslateY }] }]}>
                 <View style={styles.categoryModalHeader}>
                   <View>
                     <Text style={styles.categoryModalTitle}>{t('productEdit.configureRecipe', { type: isFnB ? t('productEdit.recipeLower') : 'combo' })}</Text>
@@ -2296,221 +3784,68 @@ export function ProductEditScreen() {
                     <Ionicons name="close" size={18} color={Colors.text} />
                   </TouchableOpacity>
                 </View>
+                {!isFnB && (
+                  <View style={styles.modeToggleWrap}>
+                    <TouchableOpacity
+                      style={[styles.modeToggleButton, !comboByProduct && styles.modeToggleButtonActive]}
+                      onPress={() => handleChangeComboMode(false)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.modeToggleText, !comboByProduct && styles.modeToggleTextActive]}>
+                        {t('productEdit.comboByIngredientMode')}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.modeToggleButton, comboByProduct && styles.modeToggleButtonActive]}
+                      onPress={() => handleChangeComboMode(true)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.modeToggleText, comboByProduct && styles.modeToggleTextActive]}>
+                        {t('productEdit.comboByProductMode')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
 
-                <ScrollView
-                  style={styles.recipeModalScroll}
-                  contentContainerStyle={styles.recipeModalScrollContent}
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {recipeIngredients.map((ingredient, index) => {
-                    const itemCost = parseCurrency(ingredient.price || ingredient.stock_cost_price || '');
-                    const itemCount = parseDecimalInput(ingredient.quantity);
-
-                    return (
-                      <View key={ingredient.id} style={styles.recipeEditCard}>
-                        <View style={styles.variantsHeader}>
-                          <Text style={styles.variantName}>{t('productEdit.ingredientNumber', { index: index + 1 })}</Text>
-                          <TouchableOpacity onPress={() => removeRecipeIngredient(ingredient.id)} activeOpacity={0.85}>
-                            <Ionicons name="trash-outline" size={17} color={Colors.danger} />
-                          </TouchableOpacity>
-                        </View>
-
-                        {ingredient.is_new_stock && !ingredient.stock_id ? (
-                          <FieldCard
-                            label={t('productEdit.newIngredientName')}
-                            value={ingredient.stock_name}
-                            onChangeText={(value) => updateRecipeIngredient(ingredient.id, { stock_name: value })}
-                            placeholder={t('productEdit.newIngredientNamePlaceholder')}
-                          />
-                        ) : (
-                          <FieldCard
-                            label={t('productEdit.ingredientName')}
-                            value={ingredient.stock_name}
-                            onPress={() => openRecipeStockSelect(ingredient.id)}
-                            placeholder={t('productEdit.ingredientNamePlaceholder')}
-                            dropdown
-                            editable={false}
-                          />
-                        )}
-
-                        {activeRecipeIngredientId === ingredient.id && (
-                          <View style={styles.recipeInlineSelect}>
-                            <View style={styles.recipeInlineSearchBox}>
-                              <Ionicons name="search-outline" size={16} color={Colors.textSecondary} />
-                              <TextInput
-                                value={recipeSearch}
-                                onChangeText={(value) => {
-                                  setRecipeSearch(value);
-                                  loadRecipeStocks(value);
-                                }}
-                                placeholder={t('productEdit.ingredientSearchPlaceholder')}
-                                placeholderTextColor={Colors.textSecondary}
-                                style={styles.recipeInlineSearchInput}
-                                autoFocus
-                              />
-                              {loadingRecipeStocks && <ActivityIndicator size="small" color={Colors.primary} />}
-                            </View>
-                            <ScrollView
-                              style={styles.recipeInlineSelectList}
-                              nestedScrollEnabled
-                              keyboardShouldPersistTaps="handled"
-                            >
-                              {recipeSearch.trim().length > 0 &&
-                                !recipeStocks.some((stockItem) => stockItem.name.trim().toLowerCase() === recipeSearch.trim().toLowerCase()) && (
-                                  <TouchableOpacity
-                                    style={[styles.categoryCreateOption, styles.recipeCreateOption]}
-                                    onPress={() => {
-                                      updateRecipeIngredient(ingredient.id, {
-                                        stock_id: null,
-                                        stock_name: recipeSearch.trim(),
-                                        unit: '',
-                                        price: '',
-                                        stock_cost_price: '',
-                                        is_new_stock: true,
-                                      });
-                                      setActiveRecipeIngredientId(null);
-                                      setRecipeSearch('');
-                                    }}
-                                    activeOpacity={0.85}
-                                  >
-                                    <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
-                                    <Text style={styles.categoryCreateText}>{t('productEdit.createIngredientNamed', { name: recipeSearch.trim() })}</Text>
-                                  </TouchableOpacity>
-                                )}
-                              {loadingRecipeStocks ? (
-                                <View style={styles.categoryLoading}>
-                                  <ActivityIndicator size="small" color={Colors.primary} />
-                                  <Text style={styles.categoryLoadingText}>{t('productEdit.loadingIngredients')}</Text>
-                                </View>
-                              ) : recipeStocks.length > 0 ? (
-                                recipeStocks.map((stockItem) => {
-                                  const selected = ingredient.stock_id
-                                    ? String(ingredient.stock_id) === String(stockItem.id)
-                                    : ingredient.stock_name.toLowerCase() === stockItem.name.toLowerCase();
-
-                                  return (
-                                    <TouchableOpacity
-                                      key={`${stockItem.id || stockItem.name}`}
-                                      style={[styles.recipeInlineOption, selected && styles.categoryOptionActive]}
-                                      onPress={() => selectRecipeStock(ingredient.id, stockItem)}
-                                      activeOpacity={0.85}
-                                    >
-                                      <View style={styles.extraInfo}>
-                                        <Text style={[styles.categoryOptionText, selected && styles.categoryOptionTextActive]}>
-                                          {stockItem.name}
-                                        </Text>
-                                        <Text style={styles.recipeSuggestionMeta}>
-                                          {stockItem.unit || 'ĐVT'} · {formatMoney(stockItem.averagePrice || stockItem.latestPrice)}
-                                        </Text>
-                                      </View>
-                                      {selected && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
-                                    </TouchableOpacity>
-                                  );
-                                })
-                              ) : (
-                                <Text style={styles.categoryEmptyText}>{t('productEdit.noIngredientMatch')}</Text>
-                              )}
-                            </ScrollView>
-                          </View>
-                        )}
-
-                        <View style={styles.twoCol}>
-                          <View style={styles.colItem}>
-                            <FieldCard
-                              label={t('productEdit.usedQuantity')}
-                              value={ingredient.quantity}
-                              onChangeText={(value) => updateRecipeIngredient(ingredient.id, { quantity: value })}
-                              keyboardType="numeric"
-                              mono
-                            />
-                          </View>
-                          <View style={styles.colItem}>
-                            <FieldCard
-                              label={t('productEdit.unit')}
-                              value={ingredient.unit}
-                              onChangeText={(value) => updateRecipeIngredient(ingredient.id, { unit: value })}
-                              placeholder={t('productEdit.unitExample')}
-                            />
-                          </View>
-                        </View>
-                        <FieldCard
-                          label={t('productEdit.costPerUnit')}
-                          value={ingredient.price}
-                          onChangeText={handleNumericChange((value) =>
-                            updateRecipeIngredient(ingredient.id, { price: value, stock_cost_price: value }),
-                          )}
-                          keyboardType="numeric"
-                        />
-
-                        {!ingredient.stock_id && (
-                          <TouchableOpacity
-                            style={styles.recipeNewStockRow}
-                            onPress={() => updateRecipeIngredient(ingredient.id, { is_new_stock: !ingredient.is_new_stock })}
-                            activeOpacity={0.85}
-                          >
-                            <Ionicons
-                              name={ingredient.is_new_stock ? 'checkbox' : 'square-outline'}
-                              size={18}
-                              color={ingredient.is_new_stock ? Colors.primary : Colors.textSecondary}
-                            />
-                            <Text style={styles.recipeNewStockText}>{t('productEdit.createNewStock')}</Text>
-                          </TouchableOpacity>
-                        )}
-
-                        {ingredient.is_new_stock && (
-                          <>
-                            <View style={styles.twoCol}>
-                              <View style={styles.colItem}>
-                                <FieldCard
-                                  label={t('productEdit.stockImportQtyShort')}
-                                  value={ingredient.stock_quantity || ''}
-                                  onChangeText={handleNumericChange((value) => updateRecipeIngredient(ingredient.id, { stock_quantity: value }))}
-                                  keyboardType="numeric"
-                                  mono
-                                />
-                              </View>
-                              <View style={styles.colItem}>
-                                <FieldCard
-                                  label={t('productEdit.stockImportPrice')}
-                                  value={ingredient.stock_cost_price || ''}
-                                  onChangeText={handleNumericChange((value) => updateRecipeIngredient(ingredient.id, { stock_cost_price: value, price: value }))}
-                                  keyboardType="numeric"
-                                />
-                              </View>
-                            </View>
-                            <View style={styles.twoCol}>
-                              <View style={styles.colItem}>
-                                <FieldCard
-                                  label={t('productEdit.paid')}
-                                  value={ingredient.stock_paid || ''}
-                                  onChangeText={handleNumericChange((value) => updateRecipeIngredient(ingredient.id, { stock_paid: value }))}
-                                  keyboardType="numeric"
-                                />
-                              </View>
-                              <View style={styles.colItem}>
-                                <FieldCard
-                                  label={t('suppliers.title')}
-                                  value={ingredient.stock_supplier || ''}
-                                  onChangeText={(value) => updateRecipeIngredient(ingredient.id, { stock_supplier: value })}
-                                  placeholder={t('productEdit.supplierNamePlaceholder')}
-                                />
-                              </View>
-                            </View>
-                          </>
-                        )}
-
-                        <Text style={styles.extraTotalLine}>{t('productEdit.lineTotal', { value: formatMoney(itemCost * itemCount) })}</Text>
-                      </View>
-                    );
-                  })}
-
-                  <TouchableOpacity style={styles.variantGenerateButton} onPress={addRecipeIngredient} activeOpacity={0.85}>
-                    <Ionicons name="add-circle-outline" size={16} color={Colors.primary} />
-                    <Text style={styles.variantGenerateText}>{t('productEdit.addIngredient')}</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.extraTotalLine}>{t('productEdit.totalCost', { value: formatMoney(recipeCost) })}</Text>
-                </ScrollView>
+                {!isFnB && comboByProduct ? (
+                  <FlatList<ComboProductDraft>
+                    style={styles.recipeModalScroll}
+                    contentContainerStyle={[styles.recipeModalScrollContent, { paddingBottom: Math.max(insets.bottom, 12) + 96 }]}
+                    data={comboProducts}
+                    keyExtractor={(item) => item.id}
+                    renderItem={renderComboProductItem}
+                    ListFooterComponent={renderComboFooter}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                    automaticallyAdjustKeyboardInsets
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={false}
+                    removeClippedSubviews
+                    initialNumToRender={6}
+                    maxToRenderPerBatch={8}
+                    windowSize={8}
+                    updateCellsBatchingPeriod={16}
+                  />
+                ) : (
+                  <FlatList<RecipeIngredient>
+                    style={styles.recipeModalScroll}
+                    contentContainerStyle={[styles.recipeModalScrollContent, { paddingBottom: Math.max(insets.bottom, 12) + 96 }]}
+                    data={recipeIngredients}
+                    keyExtractor={(item) => item.id}
+                    renderItem={renderRecipeIngredientItem}
+                    ListFooterComponent={renderRecipeFooter}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                    automaticallyAdjustKeyboardInsets
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={false}
+                    removeClippedSubviews
+                    initialNumToRender={6}
+                    maxToRenderPerBatch={8}
+                    windowSize={8}
+                    updateCellsBatchingPeriod={16}
+                  />
+                )}
 
                 <View style={styles.variantModalFooter}>
                   <TouchableOpacity
@@ -2524,19 +3859,25 @@ export function ProductEditScreen() {
                     <Text style={styles.variantSaveText}>{t('productEdit.saveRecipe')}</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
+              </Animated.View>
+            </KeyboardAvoidingView>
             </View>
           </Modal>
 
           <Modal
             visible={variantModalVisible}
             transparent
-            animationType="slide"
+            animationType="fade"
             onRequestClose={() => setVariantModalVisible(false)}
           >
-            <View style={styles.modalBackdrop}>
+            <View style={styles.modalBackdropStatic}>
               <Pressable style={styles.modalBackdropPressable} onPressIn={() => setVariantModalVisible(false)} />
-              <View style={styles.variantModal}>
+              <KeyboardAvoidingView
+                style={styles.recipeModalBackdrop}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={0}
+              >
+              <Animated.View style={[styles.variantModalSheet, { marginTop: insets.top + 56, paddingBottom: Math.max(insets.bottom, 12), transform: [{ translateY: variantSheetTranslateY }] }]}>
                 <View style={styles.categoryModalHeader}>
                   <View>
                     <Text style={styles.categoryModalTitle}>{t('productEdit.configureVariants')}</Text>
@@ -2547,7 +3888,7 @@ export function ProductEditScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
                   {renderVariantAttributeEditor(
                     variantLabels.size,
                     variantSizeOptions,
@@ -2555,6 +3896,7 @@ export function ProductEditScreen() {
                     setNewVariantSize,
                     setVariantSizeOptions,
                     t('productEdit.addOptionPlaceholder', { label: variantLabels.size.toLowerCase() }),
+                    variantSizeInputRef,
                   )}
                   {renderVariantAttributeEditor(
                     variantLabels.color,
@@ -2563,6 +3905,7 @@ export function ProductEditScreen() {
                     setNewVariantColor,
                     setVariantColorOptions,
                     t('productEdit.addOptionPlaceholder', { label: variantLabels.color.toLowerCase() }),
+                    variantColorInputRef,
                   )}
                   {renderVariantAttributeEditor(
                     variantLabels.material,
@@ -2571,6 +3914,7 @@ export function ProductEditScreen() {
                     setNewVariantMaterial,
                     setVariantMaterialOptions,
                     t('productEdit.addOptionPlaceholder', { label: variantLabels.material.toLowerCase() }),
+                    variantMaterialInputRef,
                   )}
 
                   <TouchableOpacity style={styles.variantGenerateButton} onPress={handleGenerateVariants} activeOpacity={0.85}>
@@ -2702,7 +4046,8 @@ export function ProductEditScreen() {
                     <Text style={styles.variantSaveText}>{t('productEdit.saveVariants')}</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
+              </Animated.View>
+              </KeyboardAvoidingView>
             </View>
           </Modal>
 
@@ -2780,6 +4125,44 @@ export function ProductEditScreen() {
             footerActionLabel={t('productEdit.addSizeCount', { count: selectedSizeSuggestions.length })}
             onFooterAction={handleAddSelectedSizeSuggestions}
           />
+
+          <Modal visible={showBarcodeScanner} animationType="slide" onRequestClose={() => setShowBarcodeScanner(false)}>
+            <View style={styles.scannerScreen}>
+              {!cameraPermission ? (
+                <View style={styles.scannerCenter}>
+                  <ActivityIndicator size="large" color="#fff" />
+                </View>
+              ) : (
+                <CameraView
+                  style={StyleSheet.absoluteFill}
+                  facing="back"
+                  barcodeScannerSettings={{
+                    barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code39', 'code128', 'itf14', 'codabar'],
+                  }}
+                  onBarcodeScanned={scannerPaused ? undefined : handleBarcodeScanned}
+                />
+              )}
+
+              <View style={styles.scannerOverlay} pointerEvents="none">
+                <View style={styles.scannerFrame}>
+                  <View style={[styles.scannerCorner, styles.scannerCornerTl]} />
+                  <View style={[styles.scannerCorner, styles.scannerCornerTr]} />
+                  <View style={[styles.scannerCorner, styles.scannerCornerBl]} />
+                  <View style={[styles.scannerCorner, styles.scannerCornerBr]} />
+                  <View style={styles.scannerLine} />
+                </View>
+                <Text style={styles.scannerHintText}>{t('productEdit.scanBarcodeHint')}</Text>
+              </View>
+
+              <View style={[styles.scannerHeader, { paddingTop: insets.top + 6 }]}>
+                <TouchableOpacity onPress={() => setShowBarcodeScanner(false)} style={styles.scannerHeaderBtn}>
+                  <Ionicons name="chevron-back" size={24} color="#fff" />
+                </TouchableOpacity>
+                <Text style={styles.scannerTitle}>{t('scan.title')}</Text>
+                <View style={styles.scannerHeaderBtn} />
+              </View>
+            </View>
+          </Modal>
         </ScrollView>
       )}
     </View>
@@ -2977,6 +4360,16 @@ const styles = StyleSheet.create({
   fieldInputMono: {
     fontFamily: 'monospace',
   },
+  fieldInputDisabled: {
+    color: Colors.textSecondary,
+  },
+  fieldIconButton: {
+    width: 24,
+    height: 24,
+    borderRadius: Radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   profitHint: {
     marginTop: 8,
     borderRadius: 10,
@@ -2997,10 +4390,65 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 4,
   },
-  variantsAdd: {
+  recipeHeaderAddButton: {
+    minHeight: 34,
+    borderRadius: Radius.full,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipeCenteredAddButton: {
+    minHeight: 38,
+    borderRadius: Radius.full,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    width: '72%',
+    marginTop: 10,
+    marginBottom: 2,
+  },
+  recipeHeaderAddText: {
     ...Typography.captionMd,
     color: Colors.primary,
+    fontWeight: '800',
+  },
+  modeToggleWrap: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  modeToggleButton: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  modeToggleButtonActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+  },
+  modeToggleText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
     fontWeight: '700',
+  },
+  modeToggleTextActive: {
+    color: Colors.primary,
   },
   variantRow: {
     flexDirection: 'row',
@@ -3109,6 +4557,20 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
+  recipeAddButton: {
+    minHeight: 46,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+  },
   variantGenerateText: {
     ...Typography.bodySm,
     color: Colors.primary,
@@ -3190,7 +4652,7 @@ const styles = StyleSheet.create({
   },
   recipeModalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.18)',
+    backgroundColor: 'transparent',
   },
   recipeModalSheet: {
     flex: 1,
@@ -3206,6 +4668,15 @@ const styles = StyleSheet.create({
   },
   recipeModalScrollContent: {
     paddingBottom: 12,
+  },
+  variantModalSheet: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: Colors.card,
+    paddingHorizontal: 12,
+    paddingTop: 24,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
   },
   recipeInlineSelect: {
     borderWidth: 1,
@@ -3299,23 +4770,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
   },
-  recipeNewStockRow: {
-    minHeight: 38,
-    borderRadius: Radius.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 10,
-    backgroundColor: Colors.background,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  recipeNewStockText: {
-    ...Typography.bodySm,
-    color: Colors.text,
-    fontWeight: '700',
-    flex: 1,
-  },
   recipeCompactBorder: {
     borderTopWidth: 0,
   },
@@ -3393,6 +4847,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
   },
+  extraMetaWarn: {
+    ...Typography.caption,
+    color: Colors.danger,
+    fontWeight: '700',
+    marginTop: 2,
+  },
   extraTotal: {
     ...Typography.bodySm,
     color: Colors.primary,
@@ -3434,6 +4894,95 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
+    marginTop: 8,
+  },
+  fnbOptionHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  fnbOptionHeadName: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    flex: 1,
+    fontWeight: '700',
+  },
+  fnbOptionHeadPrice: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    width: 80,
+    textAlign: 'right',
+    fontWeight: '700',
+  },
+  fnbOptionHeadPromo: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    width: 80,
+    textAlign: 'right',
+    fontWeight: '700',
+  },
+  fnbOptionHeadAction: {
+    width: 28,
+    height: 28,
+  },
+  fnbOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  fnbOptionNameInput: {
+    flex: 1,
+    minHeight: 40,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.background,
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  fnbOptionPriceInput: {
+    width: 80,
+    minHeight: 40,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.background,
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    textAlign: 'right',
+  },
+  fnbOptionPromoInput: {
+    width: 80,
+    minHeight: 40,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.background,
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    textAlign: 'right',
+  },
+  fnbOptionRemoveButton: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: '#c97a7a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff3f3',
   },
   optionChip: {
     borderRadius: Radius.full,
@@ -3494,9 +5043,10 @@ const styles = StyleSheet.create({
   centerState: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: 10,
-    paddingHorizontal: Spacing.xl,
+    paddingHorizontal: 12,
+    paddingTop: 12,
   },
   centerText: {
     ...Typography.bodySm,
@@ -3509,8 +5059,106 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 18,
   },
+  scannerScreen: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  scannerHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
+  scannerHeaderBtn: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannerTitle: {
+    ...Typography.bodyMd,
+    color: '#fff',
+    fontWeight: '700',
+  },
+  scannerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+  },
+  scannerFrame: {
+    width: 220,
+    height: 220,
+    maxWidth: '78%',
+    maxHeight: '42%',
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannerCorner: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderColor: '#fff',
+  },
+  scannerCornerTl: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 3,
+    borderLeftWidth: 3,
+    borderTopLeftRadius: 4,
+  },
+  scannerCornerTr: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 3,
+    borderRightWidth: 3,
+    borderTopRightRadius: 4,
+  },
+  scannerCornerBl: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 3,
+    borderLeftWidth: 3,
+    borderBottomLeftRadius: 4,
+  },
+  scannerCornerBr: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 3,
+    borderRightWidth: 3,
+    borderBottomRightRadius: 4,
+  },
+  scannerLine: {
+    position: 'absolute',
+    width: '80%',
+    height: 2,
+    backgroundColor: Colors.primary,
+    opacity: 0.8,
+  },
+  scannerHintText: {
+    ...Typography.bodySm,
+    color: 'rgba(255,255,255,0.78)',
+    textAlign: 'center',
+  },
   modalBackdropPressable: {
     ...StyleSheet.absoluteFillObject,
+  },
+  modalBackdropStatic: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.28)',
   },
   categoryModal: {
     maxHeight: '72%',

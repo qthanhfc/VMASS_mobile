@@ -9,6 +9,9 @@ export interface Product {
   minStock: number;
   categoryId?: number;
   category: string;
+  brandId?: number;
+  brandName?: string;
+  saleUnit?: string;
   image?: string;
   images?: string[];
   priceSale?: number;
@@ -28,12 +31,19 @@ export interface Product {
   toppingTitle?: string;
   iceTitle?: string;
   sugarTitle?: string;
+  comboItems?: ProductComboItem[];
   status: 'active' | 'inactive';
   isOnline: boolean;
   allowOversell: boolean;
   vatApplied: boolean;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ProductComboItem {
+  productId: number;
+  productName?: string;
+  quantity: number;
 }
 
 export interface ProductVariantOption {

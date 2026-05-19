@@ -1,5 +1,8 @@
-import { request } from './http';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL, TOKEN_STORAGE_KEY } from './config';
+import { ApiError, request } from './http';
 import type {
+  ProductComboItem,
   Product,
   ProductMakeItem,
   ProductStock,
@@ -40,6 +43,12 @@ type ApiProduct = {
   active_sale?: boolean | string | number | null;
   category_id?: number;
   category?: ApiCategory | null;
+  provider_id?: number | string | null;
+  brand_id?: number | string | null;
+  provider_name?: string | null;
+  brand_name?: string | null;
+  provider?: ApiProvider | null;
+  brand?: ApiProvider | null;
   softHide?: boolean | null;
   softDeleted?: boolean | null;
   bestter?: boolean | null;
@@ -62,6 +71,21 @@ type ApiProduct = {
   toppingTitle?: string | null;
   iceTitle?: string | null;
   sugarTitle?: string | null;
+  combo_products?: ApiComboProductSetting[] | string | null;
+  comboItems?: ApiComboProductSetting[] | string | null;
+  combo_items?: ApiComboProductSetting[] | string | null;
+};
+
+type ApiComboProductSetting = {
+  id?: number | string;
+  product_id?: number | string;
+  productId?: number | string;
+  name?: string | null;
+  product_name?: string | null;
+  quantity?: number | string | null;
+  count?: number | string | null;
+  value?: number | string | null;
+  promo_price?: number | string | null;
 };
 
 type ApiProductsResponse = {
@@ -170,6 +194,7 @@ export type ProductDetailResult = {
   product: Product;
   businessType: string;
   makeProducts: ProductMakeItem[];
+  allMakeProducts: ProductMakeItem[];
 };
 
 export type ProductCategory = {
@@ -199,6 +224,21 @@ const toNumber = (value: unknown, fallback = 0) => {
 const toOptionalNumber = (value: unknown) => {
   const parsed = toNumber(value, Number.NaN);
   return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const toSystemDateTime = (value?: string | null) => {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  const parsed = new Date(raw);
+  if (!Number.isFinite(parsed.getTime())) return raw;
+
+  const hasTimezoneSuffix = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+  if (!hasTimezoneSuffix) return raw;
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
 };
 
 const toBoolean = (value: unknown) => {
@@ -255,6 +295,37 @@ const parseOptionList = (value: unknown): ProductVariantOption[] => {
     }, []);
 };
 
+const parseComboItems = (value: unknown): ProductComboItem[] => {
+  if (!value) return [];
+
+  let raw = value;
+  if (typeof value === 'string') {
+    try {
+      raw = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!Array.isArray(raw)) return [];
+
+  return raw.reduce<ProductComboItem[]>((items, item) => {
+    if (!item || typeof item !== 'object') return items;
+    const next = item as ApiComboProductSetting;
+    const productId = toOptionalNumber(next.value ?? next.productId ?? next.product_id ?? next.id);
+    if (!productId || productId <= 0) return items;
+    const quantity = Math.max(0, toNumber(next.quantity ?? next.count ?? next.promo_price, 1)) || 1;
+    const productName = next.product_name || next.name || undefined;
+
+    items.push({
+      productId,
+      productName: productName ? String(productName) : undefined,
+      quantity,
+    });
+    return items;
+  }, []);
+};
+
 const mapVariant = (variant: ApiVariant): ProductVariant => ({
   id: toNumber(variant.id),
   productId: toOptionalNumber(variant.product_id),
@@ -287,6 +358,8 @@ const mapProduct = (product: ApiProduct): Product => {
     minStock: 5,
     categoryId: product.category_id,
     category: product.category?.name || 'Chưa phân loại',
+    brandId: toOptionalNumber(product.brand_id ?? product.provider_id),
+    brandName: product.brand?.name || product.provider?.name || product.brand_name || product.provider_name || undefined,
     image,
     images,
     priceSale: toNumber(product.price_sale),
@@ -306,16 +379,17 @@ const mapProduct = (product: ApiProduct): Product => {
     toppingTitle: product.toppingTitle || undefined,
     iceTitle: product.iceTitle || undefined,
     sugarTitle: product.sugarTitle || undefined,
+    comboItems: parseComboItems(product.combo_products ?? product.comboItems ?? product.combo_items),
     status: isHidden ? 'inactive' : 'active',
     isOnline: !isHidden,
     allowOversell: false,
     vatApplied: false,
-    createdAt: product.createdAt || product.date || '',
-    updatedAt: product.updatedAt || undefined,
+    createdAt: toSystemDateTime(product.createdAt || product.date || ''),
+    updatedAt: toSystemDateTime(product.updatedAt || undefined) || undefined,
   };
 };
 
-async function listAllProducts() {
+export async function listAllProducts() {
   const response = await request<ApiProductsResponse>({
     method: 'GET',
     path: '/product/all',
@@ -500,12 +574,106 @@ export async function importProducts(productData: ImportProductPayload[], busine
   });
 }
 
-export async function updateProduct(productData: UpdateProductPayload) {
-  return request<{ status?: number; responseText?: string; message?: string; data?: unknown }>({
-    method: 'PUT',
-    path: '/product',
+export async function createProduct(productData: UpdateProductPayload | FormData) {
+  const isFormData = typeof FormData !== 'undefined' && productData instanceof FormData;
+
+  if (!isFormData) {
+    return request<{ status?: number; responseText?: string; message?: string; data?: unknown }>({
+      method: 'POST',
+      path: '/product',
+      body: productData,
+    });
+  }
+
+  const token = await AsyncStorage.getItem(TOKEN_STORAGE_KEY);
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/product`, {
+    method: 'POST',
+    headers,
     body: productData,
   });
+
+  const text = await response.text();
+  let parsed: any = null;
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  if (!response.ok) {
+    const message = parsed?.responseText || parsed?.message || text || `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  return (parsed || { responseText: text || 'OK' }) as { status?: number; responseText?: string; message?: string; data?: unknown };
+}
+
+export async function updateProduct(productData: UpdateProductPayload | FormData) {
+  const isFormData = typeof FormData !== 'undefined' && productData instanceof FormData;
+
+  if (!isFormData) {
+    const normalizedBody: UpdateProductPayload = { ...productData };
+    if (normalizedBody.price_sale === '') {
+      normalizedBody.price_sale = '0';
+    }
+
+    return request<{ status?: number; responseText?: string; message?: string; data?: unknown }>({
+      method: 'PUT',
+      path: '/product',
+      body: normalizedBody,
+    });
+  }
+
+  const token = await AsyncStorage.getItem(TOKEN_STORAGE_KEY);
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/product`, {
+      method: 'PUT',
+      headers,
+      body: productData,
+    });
+  } catch (error) {
+    const networkMessage =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Không thể kết nối máy chủ.';
+    throw new ApiError(`Lỗi kết nối: ${networkMessage}`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const payload = isJson ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    const errorMessage =
+      (typeof payload === 'object' &&
+        payload !== null &&
+        'responseText' in payload &&
+        typeof payload.responseText === 'string' &&
+        payload.responseText) ||
+      (typeof payload === 'object' &&
+        payload !== null &&
+        'message' in payload &&
+        typeof payload.message === 'string' &&
+        payload.message) ||
+      (typeof payload === 'string' && payload) ||
+      `Request failed (${response.status})`;
+    throw new ApiError(errorMessage, response.status, payload);
+  }
+
+  return payload as { status?: number; responseText?: string; message?: string; data?: unknown };
 }
 
 export async function getProductDetail(id: number): Promise<ProductDetailResult> {
@@ -525,5 +693,6 @@ export async function getProductDetail(id: number): Promise<ProductDetailResult>
     product,
     businessType,
     makeProducts: makeProducts.filter((item) => item.productId === id),
+    allMakeProducts: makeProducts,
   };
 }

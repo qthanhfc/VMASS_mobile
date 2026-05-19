@@ -28,8 +28,10 @@ type StockDisplay = {
   countedStock: number;
 };
 type PriceDisplay = {
-  priceText: string;
-  promoText?: string;
+  primaryText: string;
+  secondaryText?: string;
+  oldText?: string;
+  variantCountText?: string;
 };
 type SortKey = 'recent_created' | 'recent_recipe' | 'name_asc' | 'name_desc';
 
@@ -298,26 +300,40 @@ export function ProductsListScreen() {
 
   const getPriceDisplay = useCallback((item: Product): PriceDisplay => {
     if ((item.variantCount || 0) > 0 && item.variants?.length) {
-      const priceText = formatPriceRange(item.variants.map((variant) => variant.price));
-      const activePromoPrices = item.variants
-        .filter(
-          (variant) =>
-            (variant.promoPrice || 0) > 0 &&
-            isPromoActive(variant.dateStart, variant.dateEnd),
-        )
-        .map((variant) => variant.promoPrice || 0);
-      const promoText = activePromoPrices.length ? formatPriceRange(activePromoPrices) : undefined;
+      const basePrices = item.variants
+        .map((variant) => Number(variant.price || 0))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const effectivePrices = item.variants
+        .map((variant) => {
+          const base = Number(variant.price || 0);
+          const promo = Number(variant.promoPrice || 0);
+          const promoActive = promo > 0 && isPromoActive(variant.dateStart, variant.dateEnd);
+          return promoActive ? promo : base;
+        })
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const hasActivePromo = item.variants.some(
+        (variant) => (variant.promoPrice || 0) > 0 && isPromoActive(variant.dateStart, variant.dateEnd),
+      );
+      const rangeSource = effectivePrices.length > 0 ? effectivePrices : basePrices;
+      const minPrice = rangeSource.length > 0 ? Math.min(...rangeSource) : 0;
+      const maxPrice = rangeSource.length > 0 ? Math.max(...rangeSource) : 0;
+      const variantCount = item.variantCount || item.variants.length;
 
-      return { priceText, promoText };
+      return {
+        primaryText: t('products.priceFrom', { price: shortPrice(minPrice) }),
+        secondaryText: minPrice !== maxPrice ? `${shortPrice(minPrice)}-${shortPrice(maxPrice)}` : undefined,
+        oldText: hasActivePromo ? formatPriceRange(basePrices) : undefined,
+        variantCountText: t('products.variantCountShort', { count: variantCount }),
+      };
     }
 
     const hasPromo = Boolean(item.activeSale && (item.priceSale || 0) > 0);
 
     return {
-      priceText: shortPrice(item.price),
-      promoText: hasPromo ? shortPrice(item.priceSale || 0) : undefined,
+      primaryText: hasPromo ? shortPrice(item.priceSale || 0) : shortPrice(item.price),
+      oldText: hasPromo ? shortPrice(item.price) : undefined,
     };
-  }, []);
+  }, [t]);
 
   const stockDisplays = useMemo(
     () => products.map((product) => getStockDisplay(product)),
@@ -419,7 +435,9 @@ export function ProductsListScreen() {
             </View>
             <View style={styles.gridInfo}>
               <Text style={styles.gridName} numberOfLines={2}>{item.name}</Text>
-              <Text style={styles.gridSku} numberOfLines={1}>{item.sku}</Text>
+              <Text style={styles.gridSku} numberOfLines={1}>
+                {item.sku}{item.brandName ? ` · ${item.brandName}` : ''}
+              </Text>
               <Text
                 style={[
                   styles.gridStock,
@@ -436,14 +454,16 @@ export function ProductsListScreen() {
                 {stockDisplay.text}
               </Text>
               <View style={styles.gridPriceRow}>
-                {priceDisplay.promoText ? (
+                {priceDisplay.oldText ? (
                   <View style={styles.promoPriceRow}>
-                    <Text style={styles.gridOriginalPrice}>{priceDisplay.priceText}</Text>
-                    <Text style={styles.priceText}>{priceDisplay.promoText}</Text>
+                    <Text style={styles.gridOriginalPrice}>{priceDisplay.oldText}</Text>
+                    <Text style={styles.priceText}>{priceDisplay.primaryText}</Text>
                   </View>
                 ) : (
-                  <Text style={styles.priceText}>{priceDisplay.priceText}</Text>
+                  <Text style={styles.priceText}>{priceDisplay.primaryText}</Text>
                 )}
+                {priceDisplay.secondaryText ? <Text style={styles.priceSubText}>{priceDisplay.secondaryText}</Text> : null}
+                {priceDisplay.variantCountText ? <Text style={styles.variantCountText}>{priceDisplay.variantCountText}</Text> : null}
               </View>
             </View>
           </View>
@@ -496,7 +516,9 @@ export function ProductsListScreen() {
             )}
             <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
           </View>
-          <Text style={styles.skuText}>{item.sku} · {item.category}</Text>
+          <Text style={styles.skuText}>
+            {item.sku} · {item.category}{item.brandName ? ` · ${item.brandName}` : ''}
+          </Text>
           <Text
             style={[
               styles.stockInlineText,
@@ -514,14 +536,16 @@ export function ProductsListScreen() {
         </View>
 
         <View style={styles.productRight}>
-          {priceDisplay.promoText ? (
+          {priceDisplay.oldText ? (
             <View style={styles.promoPriceRow}>
-              <Text style={styles.originalPriceText}>{priceDisplay.priceText}</Text>
-              <Text style={styles.priceText}>{priceDisplay.promoText}</Text>
+              <Text style={styles.originalPriceText}>{priceDisplay.oldText}</Text>
+              <Text style={styles.priceText}>{priceDisplay.primaryText}</Text>
             </View>
           ) : (
-            <Text style={styles.priceText}>{priceDisplay.priceText}</Text>
+            <Text style={styles.priceText}>{priceDisplay.primaryText}</Text>
           )}
+          {priceDisplay.secondaryText ? <Text style={styles.priceSubText}>{priceDisplay.secondaryText}</Text> : null}
+          {priceDisplay.variantCountText ? <Text style={styles.variantCountText}>{priceDisplay.variantCountText}</Text> : null}
         </View>
       </TouchableOpacity>
     );
@@ -891,7 +915,7 @@ const styles = StyleSheet.create({
   },
   listEmpty: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   gridItemWrap: {
     width: '48.8%',
@@ -1083,6 +1107,17 @@ const styles = StyleSheet.create({
   priceText: {
     ...Typography.bodyMd,
     color: Colors.primary,
+    fontWeight: '700',
+  },
+  priceSubText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  variantCountText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
     fontWeight: '700',
   },
   originalPriceText: {

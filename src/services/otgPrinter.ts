@@ -1,5 +1,4 @@
 import { NativeModules, Platform } from 'react-native';
-import { NetPrinter } from 'react-native-thermal-receipt-printer-image-qr';
 import {
   getPrinterStore,
   type PrinterDevice,
@@ -28,6 +27,20 @@ type AndroidPrinterBridgeModule = {
   write?: (bytes: number[] | string) => void | Promise<void>;
   disconnect?: () => void | Promise<void>;
   close?: () => void | Promise<void>;
+};
+
+type NetPrinterModule = {
+  init: () => void | Promise<void>;
+  connectPrinter: (host: string, port: number, timeout?: number) => void | Promise<void>;
+  printBill: (
+    text: string,
+    options?: {
+      cut?: boolean;
+      beep?: boolean;
+      tailingLine?: boolean;
+    }
+  ) => void;
+  closeConn: () => void | Promise<void>;
 };
 
 export type PosReceiptLineItem = {
@@ -155,6 +168,17 @@ const getPrinterBridge = (): AndroidPrinterBridgeModule | null => {
     if (module) return module;
   }
   return null;
+};
+
+const getNetPrinter = (): NetPrinterModule | null => {
+  try {
+    const nativePrinter = require('react-native-thermal-receipt-printer-image-qr') as {
+      NetPrinter?: NetPrinterModule;
+    };
+    return nativePrinter?.NetPrinter || null;
+  } catch {
+    return null;
+  }
 };
 
 const callMaybe = async <T>(
@@ -472,24 +496,29 @@ const printViaLanWifi = async (
 
   const { host, port } = parseHostAndPort();
   const receiptText = buildReceiptText(data);
+  const netPrinter = getNetPrinter();
   let hasNetConn = false;
 
   try {
-    await NetPrinter.init();
-    await NetPrinter.connectPrinter(host, port, 5000);
-    hasNetConn = true;
-    NetPrinter.printBill(receiptText, {
-      cut: preferences.cutPaperAfterPrint,
-      beep: false,
-      tailingLine: true,
-    });
+    if (netPrinter) {
+      await Promise.resolve(netPrinter.init());
+      await Promise.resolve(netPrinter.connectPrinter(host, port, 5000));
+      hasNetConn = true;
+      netPrinter.printBill(receiptText, {
+        cut: preferences.cutPaperAfterPrint,
+        beep: false,
+        tailingLine: true,
+      });
 
-    return {
-      attempted: true,
-      success: true,
-      message: `Da gui lenh in LAN/WiFi (${printer.name})`,
-      printerName: printer.name,
-    };
+      return {
+        attempted: true,
+        success: true,
+        message: `Da gui lenh in LAN/WiFi (${printer.name})`,
+        printerName: printer.name,
+      };
+    }
+
+    throw new Error('THIET_BI_CHUA_TICH_HOP_NET_PRINTER');
   } catch (error) {
     const fallback = await executeAndroidPrint(
       printer,
@@ -500,6 +529,16 @@ const printViaLanWifi = async (
     );
     if (fallback.success) {
       return fallback;
+    }
+
+    if (!netPrinter) {
+      return {
+        attempted: true,
+        success: false,
+        message:
+          'Ban dang chay Expo Go nen chua co native module in LAN/WiFi. Hay tao development build de su dung chuc nang nay.',
+        printerName: printer.name,
+      };
     }
 
     const message =
@@ -513,8 +552,8 @@ const printViaLanWifi = async (
       printerName: printer.name,
     };
   } finally {
-    if (hasNetConn) {
-      await NetPrinter.closeConn().catch(() => null);
+    if (hasNetConn && netPrinter) {
+      await Promise.resolve(netPrinter.closeConn()).catch(() => null);
     }
   }
 };
